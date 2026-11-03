@@ -5,7 +5,7 @@ Status possíveis: ⬜ não iniciada · 🟨 em andamento · 🟦 em homologaç�
 | Entrega | Nome | Status |
 |---|---|---|
 | — | Fase A: documentos de base e modelo de dados | 🟨 |
-| 0 | Fundação | ⬜ |
+| 0 | Fundação | 🟨 (só o que não depende do banco, até a aprovação do modelo) |
 | 1 | Cadastros e consulta | ⬜ |
 | 2 | Orçamentos | ⬜ |
 | 3 | A virada: estoque, vendas, OS e notas | ⬜ |
@@ -25,8 +25,8 @@ Regra: uma entrega por vez; a próxima só começa quando o usuário pedir.
 - [x] Especificação movida para `docs/especificacao.md`; `CLAUDE.md` novo, que a importa
 - [x] `docs/plano.md` (este arquivo)
 - [x] `docs/decisoes.md`
-- [ ] `docs/modelo-dados.md`, com todas as tabelas da seção 5 e o ER em Mermaid
-- [ ] **Aprovação do modelo de dados pelo usuário** (nenhuma migração antes disso)
+- [x] `docs/modelo-dados.md`, com todas as tabelas da seção 5 e o ER em Mermaid (revisado com a D012)
+- [ ] **Aprovação do modelo de dados pelo usuário** (nenhuma migração antes disso). Perguntas P1–P16 em aberto (seção 14 do modelo).
 
 ---
 
@@ -34,7 +34,7 @@ Regra: uma entrega por vez; a próxima só começa quando o usuário pedir.
 
 Pré-requisito: Docker Desktop com integração WSL ativada.
 
-- [ ] 0.1 Esqueleto do app
+- [x] 0.1 Esqueleto do app
   - Next.js, TypeScript strict, Tailwind, shadcn, ESLint e Vitest;
   - `output: 'standalone'`;
   - gerado numa pasta temporária e mesclado sem sobrescrever o `CLAUDE.md`.

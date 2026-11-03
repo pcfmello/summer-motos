@@ -115,3 +115,21 @@ Formato: contexto → decisão → consequência. Uma decisão só muda por meio
 - **Consequência:**
   - o estoque, a reserva, a baixa e a sincronização com os canais tratam o kit como uma peça comum;
   - se no futuro a loja precisar montar kits, a composição volta como migração aditiva.
+
+## D013 — Regras de cálculo do domínio (2026-11-03)
+
+Ficam em `src/server/domain/*`: funções puras, com testes e só com `Decimal`.
+
+- **Rateio (4.10):**
+  - cada parte é arredondada half-up, e a sobra de centavos vai para o item de maior valor (no empate, o primeiro da lista);
+  - se o ajuste não couber no item, porque o desconto ficaria negativo ou maior que o valor do item, a sobra passa ao próximo maior;
+  - a soma sempre fecha exata, como a NF-e exige.
+- **Total do item:** `round2(qtd × preço) − desconto do item`. Preço com mais de 2 casas ou quantidade com mais de 4 são recusados, porque a NF-e exige vProd = qCom × vUnCom com os valores gravados.
+- **Margem:** sobre o preço de venda, `(preço − custo) ÷ preço`. O markup resultante sobre o custo também é calculado.
+- **Preço sugerido e preço de tabela:** sem markup ou com a base zero, a função devolve "sem preço" (`null`), nunca R$ 0,00. O preço fixo da tabela tem prioridade e nunca é arredondado.
+- **Markup:** markup `0` é escolha explícita; nulo herda o da categoria.
+- **GTIN fiscal:**
+  - o prefixo é conferido no código completado com zeros até 14 dígitos (`02…` = uso interno), o que impede o EAN interno disfarçado com zeros à esquerda;
+  - GTIN-12 com 2 e GTIN-8 com 0 ou 2 aguardam resposta (`docs/perguntas-abertas.md`, D2).
+- **Quantidade publicada:** é arredondada para baixo até o inteiro. Decisão provisória (`perguntas-abertas.md`, D1).
+- **Entrada manual:** o custo informado é por unidade de compra. Decisão provisória (`perguntas-abertas.md`, D4).
