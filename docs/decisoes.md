@@ -133,3 +133,30 @@ Ficam em `src/server/domain/*`: funções puras, com testes e só com `Decimal`.
   - GTIN-12 com 2 e GTIN-8 com 0 ou 2 aguardam resposta (`docs/perguntas-abertas.md`, D2).
 - **Quantidade publicada:** é arredondada para baixo até o inteiro. Decisão provisória (`perguntas-abertas.md`, D1).
 - **Entrada manual:** o custo informado é por unidade de compra. Decisão provisória (`perguntas-abertas.md`, D4).
+
+## D014 — Imagem do MinIO no ambiente local (2026-11-03)
+
+- **Contexto:** a especificação pede MinIO no ambiente local. O MinIO Community deixou de publicar imagens Docker em 2025: o repositório `minio/minio` não existe mais no Docker Hub, e o pull anônimo é negado no Docker Hub e no quay.io (conferido em 03/11/2026).
+- **Decisão:**
+  - o `docker-compose.yml` usa o fork comunitário da Pigsty, `pgsty/minio:RELEASE.2026-08-04T00-00-00Z`, a última versão publicada com o nome MinIO (o fork foi renomeado para "Silo" em agosto de 2026);
+  - a mesma imagem, que traz o cliente `mc`, roda o serviço one-shot que cria o bucket e a chave do app;
+  - é só para desenvolvimento. Homologação e produção usam o R2, e o código fala S3 genérico.
+- **Consequência:**
+  - a versão fica congelada. Se ela der problema, trocar por outro storage S3 local (Silo, Garage, SeaweedFS, RustFS) é mudar só o `docker-compose.yml`;
+  - validado localmente: bucket criado, chave do app gravando e lendo, `minio-init` idempotente.
+
+## D014 — Tema e componentes base (2026-11-03)
+
+- **Contraste:**
+  - o `--muted-foreground` da especificação (#71717A) dá 4,40:1 sobre o `--muted` (#F4F4F5), abaixo do mínimo de 4,5 que a própria especificação exige;
+  - ele foi escurecido para **#6B6B73**: 4,81:1 sobre o `--muted` e 5,28:1 sobre o branco;
+  - a série 3 dos gráficos continua em #71717A, porque não é texto.
+- **Cores de apoio acrescentadas** (não estão na seção 2.1): `--sucesso-fundo`, `--destructive-fundo`, `--info-fundo`, `--destructive-foreground` e `--sidebar-muted-foreground`. Todas são expostas ao Tailwind.
+- **`parseDecimalBR`:**
+  - "1.500" é lido como mil e quinhentos (separador de milhar);
+  - "1.5" e "0.125" são lidos como decimal (teclado em layout americano);
+  - casas além do limite tornam o valor inválido, em vez de arredondar.
+  - O valor do formulário é sempre uma string decimal com ponto.
+- **Menu por perfil:** a visibilidade dos itens é provisória (`components/layout/navegacao.ts`) e só esconde na tela. A permissão real é verificada no servidor (fatia 0.6).
+- **Vitrine `/dev/componentes`:** só existe fora de produção (`notFound()` em produção).
+- **Logos:** provisórios e neutros em `public/brand/`, até a loja enviar os oficiais.

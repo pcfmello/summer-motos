@@ -18,6 +18,9 @@ const buttonVariants = cva(
         destructive:
           "bg-destructive/10 text-destructive hover:bg-destructive/20 focus-visible:border-destructive/40 focus-visible:ring-destructive/20 dark:bg-destructive/20 dark:hover:bg-destructive/30 dark:focus-visible:ring-destructive/40",
         link: "text-primary underline-offset-4 hover:underline",
+        // SUMMER: confirmação final de ação destrutiva (dentro do diálogo de confirmação)
+        "destructive-solid":
+          "bg-destructive text-destructive-foreground hover:bg-destructive/90 focus-visible:border-destructive focus-visible:ring-destructive/30",
       },
       size: {
         default:
@@ -31,6 +34,9 @@ const buttonVariants = cva(
         "icon-sm":
           "size-7 rounded-[min(var(--radius-md),12px)] in-data-[slot=button-group]:rounded-lg",
         "icon-lg": "size-9",
+        // SUMMER: alvos de toque de 44 px (OS, inventário e etiquetas no tablet/celular)
+        touch: "h-11 gap-2 px-4 text-base",
+        "icon-touch": "size-11",
       },
     },
     defaultVariants: {

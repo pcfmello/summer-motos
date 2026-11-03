@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 168 40" width="168" height="40" role="img" aria-label="SUMMER">
+  <!-- PROVISÓRIO: logo neutro gerado para desenvolvimento (estrela + palavra SUMMER). Substituir pelo logo oficial da Summer Motos. -->
+  <!-- Falta também public/brand/logo-negativo.svg; até lá o menu usa este arquivo sobre um bloco branco. -->
+  <g transform="translate(2 4)">
+    <path fill="#EA3739" d="M16.00,1.80 L19.64,11.78 L30.27,12.16 L21.90,18.72 L24.82,28.94 L16.00,23.00 L7.18,28.94 L10.10,18.72 L1.73,12.16 L12.36,11.78Z"/>
+  </g>
+  <text x="40" y="29" fill="#111111" font-family="Montserrat, 'Helvetica Neue', Arial, sans-serif" font-size="24" font-weight="800" letter-spacing="1.5">SUMMER</text>
+</svg>

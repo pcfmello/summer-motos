@@ -38,7 +38,7 @@ Pré-requisito: Docker Desktop com integração WSL ativada.
   - Next.js, TypeScript strict, Tailwind, shadcn, ESLint e Vitest;
   - `output: 'standalone'`;
   - gerado numa pasta temporária e mesclado sem sobrescrever o `CLAUDE.md`.
-- [ ] 0.2 Infra local
+- [x] 0.2 Infra local
   - `docker-compose.yml` com Postgres 17 e MinIO, com bucket automático;
   - `.env.example` completo.
 - [ ] 0.3 Recurso de migrações
@@ -51,7 +51,7 @@ Pré-requisito: Docker Desktop com integração WSL ativada.
   - `src/server/db/index.ts`, com Pool único, `db` e `withTransaction`;
   - schema Drizzle de **todas** as tabelas aprovadas;
   - migrações custom: extensões, `f_unaccent`, gatilhos de `updated_at` e de append-only, índices de busca.
-- [ ] 0.5 Domínio puro com testes
+- [x] 0.5 Domínio puro com testes
   - CPF, CNPJ alfanumérico, placa, NCM, CEST e origem;
   - EAN-13 interno e GTIN fiscal;
   - rateio de desconto;
@@ -62,12 +62,12 @@ Pré-requisito: Docker Desktop com integração WSL ativada.
   - `getContext()`;
   - matriz de permissões e checagem de módulo.
 - [ ] 0.7 Auditoria e sequências: `registrarAuditoria` e `proximoNumero`, com teste de concorrência.
-- [ ] 0.8 Layout e tema
+- [x] 0.8 Layout e tema (logos provisórios; o seletor de empresa e o login ganham lógica na 0.6)
   - Montserrat e cores da seção 2.1 em OKLCH;
   - menu lateral preto com o logo da empresa ativa;
   - seletor de empresa;
   - login.
-- [ ] 0.9 Componentes base
+- [x] 0.9 Componentes base
   - tabela com busca e paginação no servidor;
   - formulários (react-hook-form + Zod);
   - campos de moeda e quantidade pt-BR.
@@ -78,7 +78,7 @@ Pré-requisito: Docker Desktop com integração WSL ativada.
   - `/api/health`, testando o banco;
   - esqueleto do worker pg-boss.
 - [ ] 0.12 Testes de isolamento: empresa A × B (mesmo tenant) e tenant X × Y.
-- [ ] 0.13 Deploy
+- [ ] 0.13 Deploy (🟨 Dockerfile alvo `app`, CI, `.dockerignore` e rascunho do `docs/deploy.md` prontos; faltam `worker`/`migrate`, GitHub, Coolify, R2 e backup)
   - `Dockerfile` multi-stage (`app`, `worker`, `migrate`);
   - GitHub Actions (lint, typecheck, testes e migrações do zero com Postgres de serviço);
   - Coolify (homologação em `develop`, produção em `main`);

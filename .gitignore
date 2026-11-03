@@ -29,3 +29,4 @@ test-results/
 # Claude Code (local, não versionado)
 .claude/settings.local.json
 .claude/agent-memory-local/
+.vitest/
