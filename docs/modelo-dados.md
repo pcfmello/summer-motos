@@ -3,7 +3,7 @@
 > **Status:** proposta para aprovação (Fase A, Entrega 0). Nenhuma migração existe ainda.
 > **Data:** 2026-11-03
 > **Fonte:** `docs/especificacao.md`, seções 2, 4 e 5.
-> Itens marcados **[PROPOSTA]** dependem de resposta a uma pergunta em aberto (seção 14). Itens marcados **[ADIÇÃO]** não estão na seção 5, mas são exigidos por alguma regra da seção 4 ou da seção 7.
+> **Modelo aprovado pelo usuário em 2026-11-03.** Itens marcados **[APROVADA — pergunta Px]** eram propostas confirmadas pelo diretor (seção 14). Itens marcados **[ADIÇÃO]** não estão na seção 5, mas são exigidos por alguma regra da seção 4 ou da seção 7.
 
 ## Sumário
 
@@ -936,7 +936,7 @@ CHECK: `(tipo = 'produto' and produto_id is not null and servico_id is null and 
 | tabela_preco_id | uuid | não | — | → tabelas_preco (C) | |
 | vendedor_id | uuid | sim | — | → vendedores (C) | **[ADIÇÃO, D22]** Escolhido no balcão (pergunta P3). Nulo nas vendas de canal. |
 | comissao_vendedor_percentual | numeric(7,4) | sim | — | CHECK `between 0 and 100` | Cópia de `vendedores.percentual_comissao` na finalização. |
-| comissao_vendedor_base | numeric(14,2) | sim | — | CHECK `>= 0` | Valor líquido das peças: soma de `venda_itens.valor_total`, sem frete ([PROPOSTA — pergunta P1]). |
+| comissao_vendedor_base | numeric(14,2) | sim | — | CHECK `>= 0` | Valor líquido das peças: soma de `venda_itens.valor_total`, sem frete ([APROVADA — pergunta P1]). |
 | comissao_vendedor_valor | numeric(14,2) | sim | — | CHECK `>= 0` | `round_half_up(base × percentual ÷ 100, 2)`. |
 | acerto_comissao_id | uuid | sim | — | → acertos_comissao (C) | Acerto que pagou a comissão do vendedor. |
 | status | text | não | `'finalizada'` | CHECK `in ('finalizada','cancelada')` | |
@@ -963,7 +963,7 @@ CHECKs:
 - `(vendedor_id is null) = (comissao_vendedor_valor is null)`: a venda nasce finalizada, então a comissão é gravada na inserção;
 - `acerto_comissao_id is null or vendedor_id is not null`.
 
-A venda cancelada **antes** do acerto sai da comissão pelo status. A venda cancelada **depois** do acerto gera um ajuste negativo ([PROPOSTA — pergunta P2], 7.11).
+A venda cancelada **antes** do acerto sai da comissão pelo status. A venda cancelada **depois** do acerto gera um ajuste negativo ([APROVADA — pergunta P2], 7.11).
 
 Índices:
 
@@ -1022,7 +1022,7 @@ CHECK: `forma = 'dinheiro' or troco = 0`. Índice: `index (empresa_id, venda_id)
 | mecanico_responsavel_id | uuid | sim | — | → mecanicos (C) | |
 | vendedor_id | uuid | sim | — | → vendedores (C) | **[ADIÇÃO, D22]** Escolhido na OS a partir da lista de vendedores; pode ser diferente de quem está logado. |
 | comissao_vendedor_percentual | numeric(7,4) | sim | — | CHECK `between 0 and 100` | Congelado na entrega. |
-| comissao_vendedor_base | numeric(14,2) | sim | — | CHECK `>= 0` | Valor líquido das peças: soma de `os_itens.valor_total` dos itens de peça não removidos ([PROPOSTA — pergunta P1]). |
+| comissao_vendedor_base | numeric(14,2) | sim | — | CHECK `>= 0` | Valor líquido das peças: soma de `os_itens.valor_total` dos itens de peça não removidos ([APROVADA — pergunta P1]). |
 | comissao_vendedor_valor | numeric(14,2) | sim | — | CHECK `>= 0` | |
 | acerto_comissao_id | uuid | sim | — | → acertos_comissao (C) | Acerto que pagou a comissão do vendedor. |
 | previsao_entrega | timestamptz | sim | — | | |
@@ -1150,7 +1150,7 @@ CHECK: `(beneficiario_tipo = 'mecanico' and mecanico_id is not null and vendedor
 
 O pagamento grava auditoria (`acerto_comissao`).
 
-### 7.11 `comissao_ajustes` [N] [A] [PROPOSTA — pergunta P2]
+### 7.11 `comissao_ajustes` [N] [A] [APROVADA — pergunta P2]
 
 Desconto na comissão do **vendedor** quando a venda é cancelada depois do acerto, ou quando uma peça de venda ou OS fechada é devolvida. O valor entra no próximo acerto do vendedor. A comissão do mecânico não tem ajuste: a OS não reabre (R3), e a devolução é só de peças.
 
@@ -1212,7 +1212,7 @@ CHECK (
 | coluna | tipo | nulo | padrão | FK/CHECK | observação |
 |---|---|---|---|---|---|
 | devolucao_id | uuid | não | — | → devolucoes (C) | |
-| produto_id | uuid | sim | — | → produtos (C) | Nulo só na devolução de mão de obra ([PROPOSTA — pergunta P4]). |
+| produto_id | uuid | sim | — | → produtos (C) | Nulo só na devolução de mão de obra ([APROVADA — pergunta P4]). |
 | deposito_id | uuid | sim | — | → depositos (C) | **[ADIÇÃO, D28]** Para onde a peça volta (cliente) ou de onde sai (fornecedor): "Loja", ou "Garantia" se tiver defeito. Obrigatório quando há produto. |
 | venda_item_id | uuid | sim | — | → venda_itens (C) | |
 | os_item_id | uuid | sim | — | → os_itens (C) | |
@@ -2479,7 +2479,7 @@ sequenceDiagram
   2. soma o que já foi devolvido e valida `quantidade ≤ vendida − devolvida`;
   3. trava os saldos em ordem e grava `devolucao_cliente` (+q) com o `custo_unitario` do item de origem, recalculando o médio. A peça entra no depósito "Loja" ou, se tiver defeito (`garantia`), no "Garantia", que não é vendável (D28);
   4. grava `valor_devolvido` e `forma_devolucao`: a loja devolve o pagamento e não existe crédito na loja (R1);
-  5. se a venda ou OS de origem tem vendedor, grava o ajuste negativo da comissão dele ([PROPOSTA — pergunta P2], 7.11);
+  5. se a venda ou OS de origem tem vendedor, grava o ajuste negativo da comissão dele ([APROVADA — pergunta P2], 7.11);
   6. grava a outbox, se a peça voltou para um depósito vendável.
 - **Ao fornecedor:** grava `devolucao_fornecedor` (−q) ao custo médio, sem mudar o médio. A peça com defeito sai do depósito "Garantia". Status `enviado` → `aceito` | `recusado`. Se o fornecedor recusar, a peça volta para "Garantia" por estorno, e a loja decide o descarte com um ajuste manual com motivo. A nota fiscal da garantia segue a pergunta P6 (contador).
 
@@ -2529,7 +2529,7 @@ Atualizada em 2026-11-03 com as respostas do diretor. As perguntas respondidas f
 | R12 | Abrir um kit para vender uma peça só? | Aceita a proposta: ajuste manual de estoque com motivo. | Nenhum. |
 | R13 | O que vem dentro do kit; embalagem? | O conteúdo do kit fica como texto. Embalagem: "multiplicar por 10 caso PCT contenha 10". | Unidade `PCT` acrescentada (4.4). Conversão pelo fator da compra e do código de barras de embalagem, que já existem. Conteúdo do kit em `produtos.descricao_completa`. |
 
-### 14.2 Para o diretor (novas)
+### 14.2 Para o diretor (respondidas em 2026-11-03: todas as propostas aceitas)
 
 | # | Pergunta | Proposta | Impacto no modelo |
 |---|---|---|---|

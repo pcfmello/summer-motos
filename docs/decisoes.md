@@ -230,3 +230,14 @@ As perguntas D1 a D5 de `perguntas-abertas.md` não foram respondidas e seguem a
   - não há tempo fora do ar no deploy;
   - as migrações continuam aditivas, porque a versão anterior roda sobre o banco novo durante a troca;
   - o alvo `migrate` do Dockerfile continua existindo para uso manual (restauração, CI).
+
+## D021 — Modelo de dados aprovado (2026-11-03, decisão do usuário)
+
+- O usuário aprovou o `docs/modelo-dados.md` (59 tabelas). As migrações estão liberadas.
+- As decisões de modelagem da seção 1.10 do modelo (D1 a D28, numeração interna do modelo) passam a valer. Elas ficam documentadas lá, para não duplicar.
+- **Respostas do diretor sobre a comissão do vendedor (todas seguem a proposta):**
+  - a base é o valor das peças **depois do desconto**;
+  - venda cancelada ou peça devolvida depois do acerto gera um desconto no próximo acerto (`comissao_ajustes`);
+  - no balcão, o vendedor vem preenchido com quem está no caixa (se for vendedor) e pode ser trocado;
+  - mão de obra cobrada a mais numa OS fechada se corrige com uma devolução de serviço, sem mexer no estoque nem na comissão do mecânico.
+- **Ainda abertas, só para o contador, sem travar a Entrega 0:** CFOP e natureza da operação, nota de garantia ao fornecedor e devolução de NFC-e.

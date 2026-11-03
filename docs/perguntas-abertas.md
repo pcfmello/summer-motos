@@ -9,12 +9,7 @@ Responda pelo número, por exemplo "P2: não, o vendedor não perde a comissão"
 
 ## Para o diretor da loja
 
-| # | Pergunta | Proposta |
-|---|---|---|
-| P1 | A comissão do vendedor é calculada sobre o valor das peças **antes ou depois do desconto**? Ex.: peças de R$ 100 com 10% de desconto e vendedor com 5% de comissão. | **Depois do desconto:** 5% de R$ 90 = R$ 4,50. |
-| P2 | Uma venda é cancelada, ou o cliente devolve uma peça, **depois** que o vendedor já recebeu a comissão. Ele perde essa comissão? | **Sim:** o valor é descontado no próximo pagamento. Se o cancelamento acontecer antes do pagamento, a comissão simplesmente não conta. |
-| P3 | Na venda de balcão, o vendedor é sempre quem está no caixa? | A tela já vem com quem está no caixa, se ele for vendedor, e pode ser trocada. |
-| P4 | Uma OS já fechada tem a mão de obra cobrada errada. Como corrigir, já que a OS não pode ser reaberta? | Devolver ao cliente o valor cobrado a mais, como uma devolução de mão de obra. O estoque e a comissão do mecânico não mudam. |
+Nenhuma em aberto. As quatro sobre a comissão do vendedor (base depois do desconto, desconto no próximo pagamento em caso de cancelamento ou devolução, vendedor preenchido com quem está no caixa, correção da mão de obra por devolução) foram respondidas em 2026-11-03 e seguem a proposta (D021).
 
 ## Para o contador (não travam o trabalho até a Entrega 3)
 

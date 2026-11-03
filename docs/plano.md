@@ -4,8 +4,8 @@ Status possíveis: ⬜ não iniciada · 🟨 em andamento · 🟦 em homologaç�
 
 | Entrega | Nome | Status |
 |---|---|---|
-| — | Fase A: documentos de base e modelo de dados | 🟨 |
-| 0 | Fundação | 🟨 (só o que não depende do banco, até a aprovação do modelo) |
+| — | Fase A: documentos de base e modelo de dados | ✅ |
+| 0 | Fundação | 🟨 |
 | 1 | Cadastros e consulta | ⬜ |
 | 2 | Orçamentos | ⬜ |
 | 3 | A virada: estoque, vendas, OS e notas | ⬜ |
@@ -26,7 +26,7 @@ Regra: uma entrega por vez; a próxima só começa quando o usuário pedir.
 - [x] `docs/plano.md` (este arquivo)
 - [x] `docs/decisoes.md`
 - [x] `docs/modelo-dados.md`, com todas as tabelas da seção 5 e o ER em Mermaid (revisado com a D012)
-- [ ] **Aprovação do modelo de dados pelo usuário** (nenhuma migração antes disso). Respostas do diretor aplicadas (D018); faltam as perguntas novas e as do contador (`docs/perguntas-abertas.md`).
+- [x] **Aprovação do modelo de dados pelo usuário** (2026-11-03, D021). Ficam abertas só as perguntas do contador.
 
 ---
 
