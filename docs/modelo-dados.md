@@ -103,7 +103,10 @@ ALTER TABLE venda_itens ADD CONSTRAINT venda_itens_produto_fk
 - Nas tabelas, **"→ x (C)"** indica FK composta `(empresa_id, coluna) → x(empresa_id, id)`. **"→ x"** indica FK simples para `x(id)`.
 - Com FK opcional (coluna nula), o `MATCH SIMPLE` padrão do Postgres não verifica a linha. É o comportamento desejado.
 - Referências a tabelas globais (`usuarios`, `modelos_moto`, `empresas`) são FKs simples.
-- `empresa_grupo_id` (clientes e fornecedores) aponta para outra empresa do **mesmo tenant**. Isso não cabe numa FK, porque as tabelas de negócio não têm `tenant_id`. A regra fica na action e tem teste de integração.
+- `empresa_grupo_id` (clientes, fornecedores e vendas) aponta para outra empresa do **mesmo tenant**. Isso não cabe numa FK, porque as tabelas de negócio não têm `tenant_id`. O gatilho `validar_empresa_grupo()` confere o tenant das duas empresas (1.6), com teste de integração.
+- Quem autoriza desconto (`desconto_autorizado_por`, `auditoria.autorizado_por`) é um membro da empresa: FK composta `(empresa_id, x) → membros (empresa_id, usuario_id)`.
+- Índices únicos sobre o id de outra tabela começam por `empresa_id` (ex.: `unique (empresa_id, pedido_canal_id)` em `vendas`).
+- Um teste de integração lê o `pg_constraint` e garante que toda FK entre duas tabelas com `empresa_id` começa por `empresa_id` e que toda tabela com `empresa_id` tem `unique (empresa_id, id)`.
 - O custo é um índice único `(empresa_id, id)` a mais por tabela referenciada. Para o volume de uma loja, é desprezível.
 
 ### 1.6 Gatilhos e funções (migração custom 1)
@@ -113,6 +116,12 @@ ALTER TABLE venda_itens ADD CONSTRAINT venda_itens_produto_fk
 | `f_unaccent(text)` | `sql IMMUTABLE PARALLEL SAFE STRICT`, wrapper de `public.unaccent('public.unaccent', $1)` | índices de busca |
 | `set_updated_at()` | gatilho `BEFORE UPDATE FOR EACH ROW` | todas as tabelas com `updated_at`, exceto as **[A]** |
 | `bloquear_alteracao()` | gatilho `BEFORE UPDATE OR DELETE FOR EACH ROW`, `RAISE EXCEPTION` | tabelas **[A]**: `movimentacoes_estoque`, `auditoria` e `os_historico_status`. A proposta `comissao_ajustes` tem um gatilho próprio, que só permite preencher `acerto_comissao_id` uma vez (7.11). |
+| `bloquear_saida_status_final(coluna, finais…)` | gatilho `BEFORE UPDATE OF status` | status final não volta: OS `entregue`/`cancelada`, venda `cancelada`, reserva `consumida`/`liberada`. As outras colunas da linha continuam podendo mudar. |
+| `validar_empresa_grupo()` | gatilho `BEFORE INSERT OR UPDATE OF empresa_id, empresa_grupo_id` | `clientes`, `fornecedores` e `vendas`: a empresa do grupo é do mesmo tenant (1.5). |
+| `movimentacoes_estoque_validar_estorno()` | gatilho `BEFORE INSERT ... WHEN (tipo = 'estorno')` | o estorno espelha o original (6.3). |
+| `os_itens_proteger_comissao()`, `proteger_comissao_vendedor()` | gatilho `BEFORE UPDATE` | comissão congelada não muda; o acerto é preenchido uma vez (7.3, 7.6, 7.7). |
+
+Os gatilhos recusam com SQLSTATE `23001` (`restrict_violation`) o que não pode mudar e com `23514` (`check_violation`) o que é inconsistente.
 
 O gatilho append-only não impede `TRUNCATE`. O usuário do banco usado pelo app não deve ter `TRUNCATE` nessas tabelas (registrar em `docs/deploy.md`).
 
@@ -579,7 +588,7 @@ Quem recebe comissão sobre as peças vendidas, no balcão e na OS. É análogo 
 | codigo_ibge_municipio | text | sim | — | CHECK `~ '^[0-9]{7}$'` | |
 | uf | text | sim | — | CHECK `~ '^[A-Z]{2}$'` | |
 | tabela_preco_id | uuid | sim | — | → tabelas_preco (C) | |
-| empresa_grupo_id | uuid | sim | — | → empresas; CHECK `empresa_grupo_id <> empresa_id` | Mesmo tenant: validado na action (1.5). |
+| empresa_grupo_id | uuid | sim | — | → empresas; CHECK `empresa_grupo_id <> empresa_id` | Mesmo tenant: gatilho `validar_empresa_grupo()` (1.5). |
 | consumidor_final_padrao | boolean | não | `false` | | O cliente "Consumidor final" da empresa. |
 | observacoes | text | sim | — | | |
 | ativo | boolean | não | `true` | | |
@@ -626,7 +635,7 @@ CHECK: `modelo_moto_id is not null or descricao is not null`.
 | cep, logradouro, numero, complemento, bairro, municipio | text | sim | — | | **[ADIÇÃO]** Exigidos na NF-e de devolução ao fornecedor; preenchidos pelo XML. |
 | codigo_ibge_municipio | text | sim | — | CHECK `~ '^[0-9]{7}$'` | **[ADIÇÃO]** idem |
 | uf | text | sim | — | CHECK `~ '^[A-Z]{2}$'` | **[ADIÇÃO]** idem |
-| empresa_grupo_id | uuid | sim | — | → empresas; CHECK `<> empresa_id` | |
+| empresa_grupo_id | uuid | sim | — | → empresas; CHECK `<> empresa_id` | Mesmo tenant: gatilho `validar_empresa_grupo()` (1.5). |
 | observacoes | text | sim | — | | |
 | ativo | boolean | não | `true` | | |
 
@@ -654,10 +663,12 @@ CHECK: `modelo_moto_id is not null or descricao is not null`.
 |---|---|---|---|---|---|
 | nome | text | não | — | | "Loja". |
 | padrao | boolean | não | `false` | | Criado com a empresa e escondido na interface. |
-| vendavel | boolean | não | `true` | | **[ADIÇÃO, D28]** O disponível do balcão, da OS e dos canais só soma depósitos vendáveis. A empresa nasce com "Loja" (`padrao`, vendável) e "Garantia" (oculto, `vendavel = false`). |
+| vendavel | boolean | não | `false` | | **[ADIÇÃO, D28]** O disponível do balcão, da OS e dos canais só soma depósitos vendáveis. A empresa nasce com "Loja" (`padrao`, criado com `vendavel = true` explícito) e "Garantia" (oculto, `vendavel = false`). Um depósito novo só vira vendável por decisão. |
 | ativo | boolean | não | `true` | | |
 
-Índices: `unique (empresa_id, nome)`; `unique (empresa_id) where padrao`.
+Índices: `unique (empresa_id, nome)`; `unique (empresa_id) where padrao`; `unique (empresa_id, id, vendavel)`, alvo da FK que obriga venda, OS e reserva a usar depósito vendável.
+
+**Depósito vendável obrigatório:** `vendas`, `ordens_servico` e `estoque_reservas` têm a coluna constante `deposito_vendavel boolean not null default true check (deposito_vendavel)` e a FK `(empresa_id, deposito_id, deposito_vendavel) → depositos (empresa_id, id, vendavel)`. O banco recusa vender, abrir OS ou reservar no "Garantia". `devolucao_itens` continua podendo apontar para o "Garantia" (FK comum).
 
 CHECK: `not padrao or vendavel` (o depósito padrão é sempre vendável).
 
@@ -708,18 +719,25 @@ CHECKs de tabela:
 
 - `index (empresa_id, produto_id, created_at desc, id desc)`: kardex por produto e "movimentado depois da abertura do inventário";
 - `index (empresa_id, created_at desc, id desc)`, `index (empresa_id, tipo, created_at desc, id desc)`, `index (empresa_id, usuario_id, created_at desc, id desc)`: filtros do kardex. Todos terminam em `id` para a paginação keyset (1.11), porque os movimentos de uma mesma transação têm o mesmo `created_at`;
-- `index (origem_tipo, origem_id)`: estorno e devolução encontram os movimentos do documento;
+- `index (empresa_id, origem_tipo, origem_id)`: estorno e devolução encontram os movimentos do documento;
 - `unique (estorno_de_id) where estorno_de_id is not null`: um movimento só é estornado uma vez.
+
+**Estorno sempre total** (gatilho `movimentacoes_estoque_validar_estorno()`): mesmo `produto_id`, mesmo `deposito_id`, `quantidade = −original.quantidade` e o mesmo `custo_unitario` do original. Correção parcial é `ajuste_manual` com motivo.
+
+**`saldo_inicial`** é sempre positivo e aceita custo nulo (peça sem custo conhecido, D25). No inventário da virada, uma diferença negativa vira `ajuste_inventario` (13.7).
+
+**Kardex por depósito (avaliado):** o índice por produto não leva `deposito_id`. O aviso "movimentado depois da abertura" (13.7) filtra `deposito_id` sobre a faixa `(empresa_id, produto_id, created_at > aberto_em)`, que é pequena; pôr `deposito_id` no meio do índice atrapalharia o kardex do produto em todos os depósitos. Revisar se a loja passar a ter vários depósitos vendáveis.
 
 ### 6.4 `estoque_reservas` [N]
 
 | coluna | tipo | nulo | padrão | FK/CHECK | observação |
 |---|---|---|---|---|---|
 | produto_id | uuid | não | — | → produtos (C) | Igual ao produto do item de origem. |
-| deposito_id | uuid | não | — | → depositos (C) | |
+| deposito_id | uuid | não | — | FK `(empresa_id, deposito_id, deposito_vendavel)` → depositos | Só depósito vendável (6.1). |
+| deposito_vendavel | boolean | não | `true` | CHECK `deposito_vendavel` | Coluna constante da FK acima. |
 | quantidade | numeric(14,4) | não | — | CHECK `> 0` | |
-| os_item_id | uuid | sim | — | → os_itens (C) | FK criada na migração 7. |
-| pedido_canal_item_id | uuid | sim | — | → pedido_canal_itens (C) | FK criada na migração 8. |
+| os_item_id | uuid | sim | — | FK `(empresa_id, os_item_id, produto_id)` → `os_itens (empresa_id, id, produto_id)` | O produto da reserva é o do item. FK criada na migração do passo 7. |
+| pedido_canal_item_id | uuid | sim | — | FK `(empresa_id, pedido_canal_item_id, produto_id)` → `pedido_canal_itens (empresa_id, id, produto_id)` | idem; passo 8. |
 | status | text | não | `'ativa'` | CHECK `in ('ativa','consumida','liberada')` | |
 | consumida_em | timestamptz | sim | — | | |
 | liberada_em | timestamptz | sim | — | | |
@@ -730,7 +748,10 @@ CHECKs:
 
 - `num_nonnulls(os_item_id, pedido_canal_item_id) = 1`: a origem é um item de OS ou um item de pedido de canal;
 - `status <> 'consumida' or (consumida_em is not null and movimentacao_id is not null)`;
-- `status <> 'liberada' or liberada_em is not null`.
+- `status <> 'liberada' or liberada_em is not null`;
+- `status <> 'ativa' or (consumida_em is null and liberada_em is null and movimentacao_id is null)`.
+
+Status final não volta: `consumida` e `liberada` não mudam de status (gatilho `bloquear_saida_status_final`).
 
 A origem usa duas FKs tipadas em vez de `origem_tipo` + `origem_id`, para o banco garantir que o item existe. A seção 5 põe "referência à reserva" no item da OS. Aqui a referência fica do lado da reserva (D7):
 
@@ -738,13 +759,13 @@ A origem usa duas FKs tipadas em vez de `origem_tipo` + `origem_id`, para o banc
 - ao longo do tempo, o mesmo item pode ter várias reservas: mudar a quantidade da peça numa OS aberta libera a reserva antiga e cria outra, e as anteriores ficam como histórico (`consumida` ou `liberada`);
 - isso evita uma FK circular (item → reserva → item).
 
-O item da OS acha a reserva ativa por `estoque_reservas.os_item_id` com `status = 'ativa'`.
+O item da OS acha a reserva ativa por `estoque_reservas.os_item_id` com `status = 'ativa'`. As tabelas de origem têm `unique (empresa_id, id, produto_id)`, alvo das FKs acima.
 
 Índices:
 
 - `index (produto_id, status)` (seção 5);
-- `unique (os_item_id) where status = 'ativa'`: no máximo uma reserva ativa por item de OS;
-- `unique (pedido_canal_item_id) where status = 'ativa'`: idem por item de pedido. Esses dois índices também garantem idempotência: um pedido pago processado duas vezes não reserva em dobro.
+- `unique (empresa_id, os_item_id) where status <> 'liberada'`: no máximo uma reserva **vigente** (ativa ou consumida) por item de OS. O item cuja reserva já foi consumida nunca ganha outra; só uma reserva liberada abre espaço para uma nova;
+- `unique (empresa_id, pedido_canal_item_id) where status <> 'liberada'`: idem por item de pedido. Esses dois índices também garantem idempotência: um pedido pago processado duas vezes, ou de novo depois de faturado, não reserva em dobro.
 
 ### 6.5 `entradas_estoque` [N]
 
@@ -773,7 +794,7 @@ O item da OS acha a reserva ativa por `estoque_reservas.os_item_id` com `status 
 | confirmada_em | timestamptz | sim | — | | |
 | confirmada_por | uuid | sim | — | → usuarios | |
 
-CHECKs: `origem <> 'xml' or (chave_acesso is not null and xml_chave is not null)`; `status <> 'confirmada' or confirmada_em is not null`.
+CHECKs: `origem <> 'xml' or (chave_acesso is not null and xml_chave is not null)`; `status <> 'confirmada' or confirmada_em is not null`; `status <> 'cancelada' or confirmada_em is null` (a entrada confirmada não vira cancelada: a correção é por estorno ou devolução).
 
 Índices:
 
@@ -804,6 +825,8 @@ CHECKs: `origem <> 'xml' or (chave_acesso is not null and xml_chave is not null)
 | valor_ipi | numeric(14,2) | não | `0` | CHECK `>= 0` | |
 | valor_st | numeric(14,2) | não | `0` | CHECK `>= 0` | |
 | custo_unitario | numeric(16,6) | não | — | CHECK `>= 0` | Por unidade de estoque (regra 4.5). |
+
+CHECK: `quantidade_estoque = round(quantidade_compra * fator, 4)`.
 
 Índices: `unique (entrada_id, numero_item)`; `index (empresa_id, produto_id)`.
 
@@ -853,7 +876,8 @@ Padrão dos itens de documento (orçamento, venda, OS):
 
 - `valor_bruto = round_half_up(quantidade × preco_unitario, 2)`;
 - `valor_total = valor_bruto − desconto_item − desconto_rateado`;
-- o desconto do cabeçalho é rateado pela função pura `server/domain/rateio` (regra 4.10).
+- o desconto do cabeçalho é rateado pela função pura `server/domain/rateio` (regra 4.10);
+- as duas contas são CHECKs nos itens de orçamento, venda e OS: `valor_bruto = round(quantidade * preco_unitario, 2)` e `valor_total = valor_bruto - desconto_item - desconto_rateado`. O `round` do Postgres é half-up para valores ≥ 0.
 
 Comissões (D22, D23):
 
@@ -878,7 +902,7 @@ Comissões (D22, D23):
 | valor_servicos | numeric(14,2) | não | `0` | | |
 | valor_desconto | numeric(14,2) | não | `0` | CHECK `>= 0` | Desconto do cabeçalho. |
 | valor_total | numeric(14,2) | não | `0` | CHECK `>= 0` | |
-| desconto_autorizado_por | uuid | sim | — | → usuarios | Dono que digitou o PIN. |
+| desconto_autorizado_por | uuid | sim | — | FK `(empresa_id, desconto_autorizado_por)` → `membros (empresa_id, usuario_id)` | Dono que digitou o PIN, membro desta empresa. |
 | observacoes | text | sim | — | | |
 | usuario_id | uuid | não | — | → usuarios | Quem fez. |
 | venda_id | uuid | sim | — | → vendas (C) | Documento gerado na conversão. |
@@ -928,11 +952,12 @@ CHECK: `(tipo = 'produto' and produto_id is not null and servico_id is null and 
 |---|---|---|---|---|---|
 | numero | bigint | não | — | | `sequencias.venda`. |
 | cliente_id | uuid | não | — | → clientes (C) | Consumidor final, se não informado. Nas vendas de canal, é sempre o Consumidor final; os dados do comprador ficam no pedido (D24). |
-| empresa_grupo_id | uuid | sim | — | → empresas | **[ADIÇÃO]** Snapshot de `clientes.empresa_grupo_id` no momento da venda. Os relatórios consolidados excluem por aqui (4.15), sem depender de o cadastro mudar depois. |
+| empresa_grupo_id | uuid | sim | — | → empresas; CHECK `<> empresa_id`; gatilho de mesmo tenant | **[ADIÇÃO]** Snapshot de `clientes.empresa_grupo_id` no momento da venda. Os relatórios consolidados excluem por aqui (4.15), sem depender de o cadastro mudar depois. |
 | canal | text | não | `'balcao'` | CHECK `in ('balcao','orcamento','os','mercado_livre','ecommerce')` | `os` fica sem uso (D21). |
 | pedido_canal_id | uuid | sim | — | → pedidos_canal (C) | FK criada na migração 8. Por ele a nota do e-commerce chega aos dados do destinatário (D24). |
 | orcamento_id | uuid | sim | — | → orcamentos (C) | |
-| deposito_id | uuid | não | — | → depositos (C) | |
+| deposito_id | uuid | não | — | FK `(empresa_id, deposito_id, deposito_vendavel)` → depositos | Só depósito vendável (6.1). |
+| deposito_vendavel | boolean | não | `true` | CHECK `deposito_vendavel` | Coluna constante da FK acima. |
 | tabela_preco_id | uuid | não | — | → tabelas_preco (C) | |
 | vendedor_id | uuid | sim | — | → vendedores (C) | **[ADIÇÃO, D22]** Escolhido no balcão (pergunta P3). Nulo nas vendas de canal. |
 | comissao_vendedor_percentual | numeric(7,4) | sim | — | CHECK `between 0 and 100` | Cópia de `vendedores.percentual_comissao` na finalização. |
@@ -944,7 +969,7 @@ CHECK: `(tipo = 'produto' and produto_id is not null and servico_id is null and 
 | valor_desconto | numeric(14,2) | não | `0` | CHECK `>= 0` | |
 | valor_frete | numeric(14,2) | não | `0` | CHECK `>= 0` | Pedidos de canal. |
 | valor_total | numeric(14,2) | não | — | CHECK `>= 0` | |
-| desconto_autorizado_por | uuid | sim | — | → usuarios | |
+| desconto_autorizado_por | uuid | sim | — | FK `(empresa_id, desconto_autorizado_por)` → `membros (empresa_id, usuario_id)` | Membro desta empresa. |
 | status_fiscal | text | não | `'nao_emitido'` | CHECK `in ('nao_emitido','processando','autorizado','erro','cancelado','denegado','externo')` | `externo` = nota do emissor externo registrada. |
 | emissor_fiscal | text | sim | — | CHECK `in ('focus','externo','nao_fiscal')` | `nao_fiscal` = comprovante não fiscal. |
 | documento_fiscal_id | uuid | sim | — | → documentos_fiscais (C) | FK criada na migração 9. Aponta para a nota vigente. |
@@ -961,15 +986,18 @@ CHECKs:
 - `(canal in ('mercado_livre','ecommerce')) = (pedido_canal_id is not null)`;
 - `num_nonnulls(comissao_vendedor_percentual, comissao_vendedor_base, comissao_vendedor_valor) in (0, 3)`;
 - `(vendedor_id is null) = (comissao_vendedor_valor is null)`: a venda nasce finalizada, então a comissão é gravada na inserção;
-- `acerto_comissao_id is null or vendedor_id is not null`.
+- `acerto_comissao_id is null or vendedor_id is not null`;
+- `comissao_vendedor_valor = round(comissao_vendedor_base * comissao_vendedor_percentual / 100, 2)`.
+
+Gatilhos: a venda `cancelada` não volta a `finalizada`; como a venda nasce fechada, `vendedor_id` e `comissao_vendedor_*` nunca mudam depois da inserção, e `acerto_comissao_id` é preenchido uma vez só. Correção de comissão é por `comissao_ajustes` (7.11).
 
 A venda cancelada **antes** do acerto sai da comissão pelo status. A venda cancelada **depois** do acerto gera um ajuste negativo ([APROVADA — pergunta P2], 7.11).
 
 Índices:
 
 - `unique (empresa_id, numero)`;
-- `unique (pedido_canal_id) where pedido_canal_id is not null`: o faturamento do pedido é idempotente;
-- `unique (orcamento_id) where orcamento_id is not null`;
+- `unique (empresa_id, pedido_canal_id) where pedido_canal_id is not null`: o faturamento do pedido é idempotente;
+- `unique (empresa_id, orcamento_id) where orcamento_id is not null`;
 - `index (empresa_id, finalizada_em desc, id desc)` e `index (empresa_id, canal, finalizada_em desc, id desc)`: paginação keyset (1.11);
 - `index (empresa_id, cliente_id)`;
 - `index (empresa_id, vendedor_id, finalizada_em) where vendedor_id is not null and acerto_comissao_id is null`: comissões a pagar;
@@ -1028,13 +1056,14 @@ CHECK: `forma = 'dinheiro' or troco = 0`. Índice: `index (empresa_id, venda_id)
 | previsao_entrega | timestamptz | sim | — | | |
 | status | text | não | `'aberta'` | CHECK `in ('aberta','aguardando_peca','em_execucao','pronta','entregue','cancelada')` | `entregue` e `cancelada` são finais: a OS fechada **não reabre** (R3); a correção é feita por devolução. |
 | orcamento_id | uuid | sim | — | → orcamentos (C) | |
-| deposito_id | uuid | não | — | → depositos (C) | |
+| deposito_id | uuid | não | — | FK `(empresa_id, deposito_id, deposito_vendavel)` → depositos | Só depósito vendável (6.1). |
+| deposito_vendavel | boolean | não | `true` | CHECK `deposito_vendavel` | Coluna constante da FK acima. |
 | tabela_preco_id | uuid | não | — | → tabelas_preco (C) | |
 | valor_pecas | numeric(14,2) | não | `0` | | |
 | valor_servicos | numeric(14,2) | não | `0` | | |
 | valor_desconto | numeric(14,2) | não | `0` | CHECK `>= 0` | |
 | valor_total | numeric(14,2) | não | `0` | CHECK `>= 0` | |
-| desconto_autorizado_por | uuid | sim | — | → usuarios | |
+| desconto_autorizado_por | uuid | sim | — | FK `(empresa_id, desconto_autorizado_por)` → `membros (empresa_id, usuario_id)` | Membro desta empresa. |
 | quitada_em | timestamptz | sim | — | | **[ADIÇÃO]** Quando os pagamentos somam o total. Só informativo: **não** condiciona nenhuma comissão (R2). |
 | entregue_em | timestamptz | sim | — | | Fechamento da OS: congela as comissões do mecânico e do vendedor. |
 | entregue_por | uuid | sim | — | → usuarios | |
@@ -1053,13 +1082,14 @@ CHECKs:
 - `num_nonnulls(comissao_vendedor_percentual, comissao_vendedor_base, comissao_vendedor_valor) in (0, 3)`;
 - `comissao_vendedor_valor is null or (status = 'entregue' and vendedor_id is not null)`;
 - `status <> 'entregue' or vendedor_id is null or comissao_vendedor_valor is not null`;
-- `acerto_comissao_id is null or comissao_vendedor_valor is not null`.
+- `acerto_comissao_id is null or comissao_vendedor_valor is not null`;
+- `comissao_vendedor_valor = round(comissao_vendedor_base * comissao_vendedor_percentual / 100, 2)`.
 
-A regra "OS entregue ou cancelada não muda de status" é garantida na action (a transição sai de `ordens_servico ... FOR UPDATE`) e coberta por teste. Um gatilho de transição de status fica como opção, se o teste mostrar necessidade.
+A regra "OS entregue ou cancelada não muda de status" (R3, D018) é garantida pelo gatilho `bloquear_saida_status_final`, além da action (a transição sai de `ordens_servico ... FOR UPDATE`). Com a OS fechada (`entregue` ou `cancelada`), `vendedor_id` e `comissao_vendedor_*` não mudam, e `acerto_comissao_id` é preenchido uma vez só (gatilho `proteger_comissao_vendedor`).
 
 Índices:
 
-- `unique (empresa_id, numero)`; `unique (orcamento_id) where orcamento_id is not null`;
+- `unique (empresa_id, numero)`; `unique (empresa_id, orcamento_id) where orcamento_id is not null`;
 - `index (empresa_id, created_at desc, id desc)` e `index (empresa_id, status, created_at desc, id desc)`: lista e kanban, com paginação keyset (1.11);
 - `index (empresa_id, mecanico_responsavel_id, status)`;
 - `index (empresa_id, vendedor_id, entregue_em) where vendedor_id is not null and acerto_comissao_id is null`: comissões a pagar;
@@ -1100,6 +1130,10 @@ CHECKs:
 - `acerto_id is null or comissao_congelada_em is not null`.
 
 A action confere que o `acerto_id` aponta para um acerto com `beneficiario_tipo = 'mecanico'` do mesmo mecânico; um teste de integração cobre isso.
+
+Comissão congelada (gatilho `os_itens_proteger_comissao`): com `comissao_congelada_em` preenchida, `comissao_valor`, `mecanico_id` e a própria data não mudam; `acerto_id` é preenchido uma vez só. Correção de comissão do mecânico depois do fechamento não existe (R3).
+
+`unique (empresa_id, id, produto_id)`: alvo da FK de `estoque_reservas` (6.4).
 
 Índices: `index (empresa_id, ordem_servico_id, ordem)`; `index (empresa_id, mecanico_id, comissao_congelada_em)` (telas "Mão de obra" e "Meus ganhos", e a visão do mecânico em R9); `index (empresa_id, acerto_id)`; `index (empresa_id, produto_id)`.
 
@@ -1330,7 +1364,7 @@ Para o e-commerce (emissor Focus), a action de faturamento recusa o pedido sem n
 | valor_total | numeric(14,2) | não | — | | |
 | taxa | numeric(14,2) | não | `0` | CHECK `>= 0` | Tarifa do canal. |
 
-Índices: `index (empresa_id, pedido_canal_id)`; `index (empresa_id, produto_id)`.
+Índices: `index (empresa_id, pedido_canal_id)`; `index (empresa_id, produto_id)`; `unique (empresa_id, id, produto_id)`, alvo da FK de `estoque_reservas` (6.4).
 
 ### 8.5 `eventos_integracao` [N]
 
@@ -1438,7 +1472,7 @@ CHECK: `num_nonnulls(venda_id, ordem_servico_id, devolucao_id) = 1`.
 - `unique (ref)` (seção 5; global, porque o webhook localiza a nota pela ref);
 - `unique (empresa_id, ambiente, modelo, serie, numero) where numero is not null`;
 - `unique (empresa_id, chave) where chave is not null`;
-- `unique (venda_id) where venda_id is not null and status in ('pendente','processando','autorizado')`, e o mesmo para `ordem_servico_id` e `devolucao_id`: nunca duas notas vigentes para o mesmo documento;
+- `unique (empresa_id, venda_id) where venda_id is not null and status in ('pendente','processando','autorizado')`, e o mesmo para `ordem_servico_id` e `devolucao_id`: nunca duas notas vigentes para o mesmo documento;
 - `index (empresa_id, status) where status in ('processando','erro')`.
 
 ### 9.2 `eventos_fiscais` [N]
@@ -1499,7 +1533,7 @@ Unicidade: `unique (empresa_id, chave)`. As 7 linhas são criadas junto com a em
 | coluna | tipo | nulo | padrão | FK/CHECK | observação |
 |---|---|---|---|---|---|
 | usuario_id | uuid | sim | — | → usuarios | Nulo = sistema. |
-| autorizado_por | uuid | sim | — | → usuarios | Dono que digitou o PIN. |
+| autorizado_por | uuid | sim | — | FK `(empresa_id, autorizado_por)` → `membros (empresa_id, usuario_id)` | Dono que digitou o PIN, membro desta empresa. |
 | entidade | text | não | — | | Nome da tabela (`produtos`, `vendas`…). |
 | entidade_id | uuid | não | — | | |
 | acao | text | não | — | | Catálogo de ações em código (`preco_alterado`, `custo_alterado`, `ajuste_estoque`, `venda_cancelada`, `desconto_acima_limite`, `codigo_alterado`, `comissao_alterada`, `acerto_comissao`, `canal_config_alterada`). A reabertura de OS não existe mais (R3). Sem CHECK, para que uma ação nova não exija migração. |
@@ -1619,6 +1653,9 @@ erDiagram
   produtos ||--o{ fornecedor_produto_vinculos : de_para
   depositos ||--o{ estoque_saldos : guarda
   produtos ||--o{ estoque_saldos : saldo
+  depositos ||--o{ vendas : vendavel
+  depositos ||--o{ ordens_servico : vendavel
+  depositos ||--o{ estoque_reservas : vendavel
   produtos ||--o{ movimentacoes_estoque : movimenta
   produtos ||--o{ estoque_reservas : reserva
   fornecedores |o--o{ entradas_estoque : fornece
@@ -1964,6 +2001,8 @@ erDiagram
     uuid id PK
     uuid empresa_id FK
     uuid produto_id FK
+    uuid deposito_id FK
+    bool deposito_vendavel
     numeric quantidade
     uuid os_item_id FK
     uuid pedido_canal_item_id FK
@@ -2071,6 +2110,8 @@ erDiagram
     uuid vendedor_id FK
     text canal
     uuid pedido_canal_id FK
+    uuid deposito_id FK
+    bool deposito_vendavel
     text status
     numeric valor_total
     numeric comissao_vendedor_percentual
@@ -2104,6 +2145,8 @@ erDiagram
     uuid moto_cliente_id FK
     uuid mecanico_responsavel_id FK
     uuid vendedor_id FK
+    uuid deposito_id FK
+    bool deposito_vendavel
     text status
     numeric valor_total
     numeric comissao_vendedor_valor
@@ -2333,9 +2376,9 @@ erDiagram
 
 ### 13.1 Regras comuns a todos os fluxos
 
-1. Tudo acontece dentro de `withTransaction`, chamando só `server/domain/estoque`.
+1. Tudo acontece dentro de `withTransaction`, chamando só `server/domain/estoque`. A transação tem `lock_timeout` (padrão 5 s); com retentativa ligada, valem as quatro regras do `withTransaction` (nada fora do banco dentro da função, decisões lidas com `FOR UPDATE` dentro dela, nenhum estado acumulado fora dela, nada de `redirect()`/`notFound()` dentro dela).
 2. **Soma por produto:** itens repetidos do mesmo produto no documento são somados antes de travar. O kit é um produto como outro qualquer, com saldo próprio, e não é desmembrado (regra 4.4 substituída, seção 1.10).
-3. **Garante as linhas de saldo:** `INSERT INTO estoque_saldos (empresa_id, produto_id, deposito_id) VALUES ... ON CONFLICT (produto_id, deposito_id) DO NOTHING`.
+3. **Garante as linhas de saldo:** `INSERT INTO estoque_saldos (empresa_id, produto_id, deposito_id) VALUES ... ON CONFLICT (produto_id, deposito_id) DO NOTHING`, com as linhas do `VALUES` **ordenadas por `produto_id`**. O insert também trava a chave nova; fora de ordem, duas transações criando os mesmos saldos podem entrar em deadlock.
 4. **Ordem determinística das travas** (evita deadlock entre duas vendas com os mesmos itens em ordem diferente):
    1. a linha do documento, quando ele já existe (`ordens_servico`, `pedidos_canal`, `inventarios`, `entradas_estoque`) — `FOR UPDATE`;
    2. os saldos, numa única query ordenada: `SELECT ... FROM estoque_saldos WHERE deposito_id = $1 AND produto_id = ANY($2) ORDER BY produto_id FOR UPDATE`. O nó `LockRows` do Postgres fica acima do `Sort`, então as linhas são travadas na ordem de `produto_id`;
@@ -2448,7 +2491,7 @@ sequenceDiagram
   K->>API: GET pedido atual
   K->>DB: BEGIN e upsert pedidos_canal por canal_id e id_externo
   K->>DB: SELECT pedido FOR UPDATE
-  alt pago e sem reserva ativa
+  alt status local pago e sem reserva vigente
     K->>DB: SELECT saldos ORDER BY produto_id FOR UPDATE
     alt disponivel suficiente
       K->>DB: INSERT estoque_reservas e UPDATE reservada
@@ -2465,9 +2508,10 @@ sequenceDiagram
 ```
 
 - O estado do pedido é sempre o da API do canal, não o da notificação.
+- **Quando reservar:** olha o status **local** do pedido, travado com `FOR UPDATE`. Só reserva o pedido `pago` sem reserva vigente. Pedido `faturado`, `cancelado` ou `devolvido` nunca reserva, mesmo que chegue uma notificação atrasada dizendo "pago". O índice único `where status <> 'liberada'` é a última barreira: o item com reserva consumida não ganha outra.
 - **Idempotência em três camadas:**
   - `eventos_integracao` (a mesma notificação não é processada duas vezes);
-  - `unique (pedido_canal_item_id) where status = 'ativa'` (não reserva duas vezes);
+  - `unique (empresa_id, pedido_canal_item_id) where status <> 'liberada'` (não reserva duas vezes, nem depois de faturado);
   - `unique (vendas.pedido_canal_id)` (não fatura duas vezes).
 - **Disputa com o balcão pela última unidade:** os dois travam a mesma linha de `estoque_saldos`. Quem chega depois vê o disponível zerado. Se for o pedido do canal, ele fica `pago` com `pendencia` e aparece na lista de pedidos com problema, e a loja decide (R4). O estoque de segurança do canal (`canais_venda.estoque_seguranca`) reduz a chance disso, porque o canal publica menos do que o disponível.
 - Quando a venda é faturada pelo emissor externo, `vendas.emissor_fiscal = 'externo'`. A nota externa é registrada depois em `pedidos_canal.nota_externa_*`, e então `status_fiscal = 'externo'`.
@@ -2477,18 +2521,18 @@ sequenceDiagram
 - **De cliente:**
   1. trava o `venda_item` (ou `os_item`) de origem;
   2. soma o que já foi devolvido e valida `quantidade ≤ vendida − devolvida`;
-  3. trava os saldos em ordem e grava `devolucao_cliente` (+q) com o `custo_unitario` do item de origem, recalculando o médio. A peça entra no depósito "Loja" ou, se tiver defeito (`garantia`), no "Garantia", que não é vendável (D28);
+  3. trava os saldos em ordem e grava `devolucao_cliente` (+q) com o `custo_unitario` do item de origem, recalculando o médio. Se o item de origem tem custo nulo (D25), a peça entra pelo **custo médio atual** do saldo (nulo, se ele também for desconhecido). A peça entra no depósito "Loja" ou, se tiver defeito (`garantia`), no "Garantia", que não é vendável (D28);
   4. grava `valor_devolvido` e `forma_devolucao`: a loja devolve o pagamento e não existe crédito na loja (R1);
   5. se a venda ou OS de origem tem vendedor, grava o ajuste negativo da comissão dele ([APROVADA — pergunta P2], 7.11);
   6. grava a outbox, se a peça voltou para um depósito vendável.
-- **Ao fornecedor:** grava `devolucao_fornecedor` (−q) ao custo médio, sem mudar o médio. A peça com defeito sai do depósito "Garantia". Status `enviado` → `aceito` | `recusado`. Se o fornecedor recusar, a peça volta para "Garantia" por estorno, e a loja decide o descarte com um ajuste manual com motivo. A nota fiscal da garantia segue a pergunta P6 (contador).
+- **Ao fornecedor:** grava `devolucao_fornecedor` (−q) ao custo médio, sem mudar o médio. A peça com defeito sai do depósito "Garantia". Status `enviado` → `aceito` | `recusado`. Se o fornecedor recusar tudo, a peça volta para "Garantia" por estorno do movimento de saída; o estorno é sempre total (6.3). Recusa parcial é lançada como `ajuste_manual` com motivo. Depois, a loja decide o descarte com outro ajuste manual com motivo. A nota fiscal da garantia segue a pergunta P6 (contador).
 
 ### 13.7 Inventário
 
-1. **Abrir:** cria `inventarios` e um `inventario_itens` por produto ativo do filtro, com `quantidade_sistema` = saldo do momento.
+1. **Abrir:** cria `inventarios` e um `inventario_itens` por produto ativo do filtro, com `quantidade_sistema` = saldo do momento, lido com `SELECT ... FOR SHARE` nos saldos do depósito: uma baixa em andamento termina antes da foto, e a foto não bloqueia outras leituras.
 2. **Contar:** `UPDATE inventario_itens SET quantidade_contada = coalesce(quantidade_contada, 0) + $fator` (atômico; dá para contar em dois tablets ao mesmo tempo) ou digitação direta.
-3. **Revisar:** marca `movimentado_apos_abertura` se existir movimento do produto com `created_at > aberto_em`.
-4. **Aplicar:** trava o inventário e os saldos em ordem. Para cada item contado, `Δ = contada − quantidade atual`; se `Δ ≠ 0`, grava `ajuste_inventario` (ou `saldo_inicial`, no inventário da virada) ao custo médio. Se o saldo estava ≤ 0 e Δ > 0, usa o `ultimo_custo`; sem custo conhecido, grava custo nulo (D25). **Item não contado mantém a quantidade (R5):** antes de aplicar, a tela só lista quais não foram contados; não existe "zerar as não contadas". Ao final, grava a outbox.
+3. **Revisar:** marca `movimentado_apos_abertura` se existir movimento do produto **no depósito do inventário** com `created_at > aberto_em` (filtro `deposito_id`; ver a nota de índice em 6.3).
+4. **Aplicar:** trava o inventário e os saldos em ordem. Para cada item contado, `Δ = contada − quantidade atual`; se `Δ ≠ 0`, grava `ajuste_inventario` ao custo médio. No inventário da virada, `Δ > 0` grava `saldo_inicial` (sempre positivo, e aceita custo nulo, D25) e `Δ < 0` grava `ajuste_inventario`. Se o saldo estava ≤ 0 e Δ > 0, usa o `ultimo_custo`; sem custo conhecido, grava custo nulo (D25). **Item não contado mantém a quantidade (R5):** antes de aplicar, a tela só lista quais não foram contados; não existe "zerar as não contadas". Ao final, grava a outbox.
 
 ### 13.8 Entrada
 
@@ -2550,20 +2594,20 @@ Atualizada em 2026-11-03 com as respostas do diretor. As perguntas respondidas f
 
 ## 15. Migrações previstas
 
-Cada passo é uma migração gerada pelo `drizzle-kit generate --name <slug>` a partir do schema do módulo, seguida, quando preciso, de uma migração custom (`--custom`) com o que o Drizzle não gera. Todas são aditivas, aplicam do zero num banco vazio no CI e rodam pelo `scripts/migrate.ts` antes de a nova versão subir.
+Cada passo é um par: a migração gerada pelo `drizzle-kit generate --name <slug>` a partir do schema do módulo e uma migração custom (`--custom`) com o que o Drizzle não gera (gatilhos, funções, índices de expressão). Todas são aditivas, aplicam do zero num banco vazio no CI e rodam pelo `scripts/migrate.ts` antes de a nova versão subir. O drizzle-kit numera a partir de `0000`. As FKs para tabelas de passos seguintes entram no passo em que a tabela de destino nasce.
 
-| # | Nome | Conteúdo | Custom |
+| Passo | Arquivos | Conteúdo | Custom |
 |---|---|---|---|
-| 1 | `0001_extensoes_funcoes` | — | `CREATE EXTENSION IF NOT EXISTS pg_trgm`, `unaccent`; `f_unaccent`; `set_updated_at()`; `bloquear_alteracao()` |
-| 2 | `0002_plataforma_auth` | `tenants`, `empresas`, `usuarios`, `sessoes`, `contas_acesso`, `verificacoes`, `membros`, `credenciais_fiscais`; FK composta de `sessoes` → `membros` | gatilhos `set_updated_at` |
-| 3 | `0003_referencia_global` | `marcas_moto`, `modelos_moto` | índices `lower(nome)` (se não forem gerados); gatilhos |
-| 4 | `0004_catalogo` | `categorias`, `marcas`, `perfis_tributarios`, `produtos`, `produto_codigos_barras`, `produto_imagens`, `produto_aplicacoes`, `servicos`, `mecanicos`, `vendedores`, `tabelas_preco`, `tabela_preco_itens` | gatilhos |
-| 5 | `0005_pessoas` | `clientes`, `motos_cliente`, `fornecedores`, `fornecedor_produto_vinculos` | gatilhos |
-| 6 | `0006_estoque` | `depositos` (com `vendavel`), `estoque_saldos`, `movimentacoes_estoque`, `estoque_reservas` (sem as FKs de origem), `entradas_estoque`, `entrada_itens`, `inventarios`, `inventario_itens` | gatilho append-only em `movimentacoes_estoque`; gatilhos |
-| 7 | `0007_documentos` | `orcamentos`, `orcamento_itens`, `vendas` (sem as FKs para `pedidos_canal` e `documentos_fiscais`), `venda_itens`, `venda_pagamentos`, `acertos_comissao`, `ordens_servico`, `os_itens`, `os_pagamentos`, `os_historico_status`, `devolucoes`, `devolucao_itens`; FK `estoque_reservas.os_item_id`; proposta `comissao_ajustes`, se a pergunta P2 for aprovada. `acertos_comissao` vem antes de `vendas`, `ordens_servico` e `os_itens`, que apontam para ela. | append-only em `os_historico_status`; gatilho próprio de `comissao_ajustes`; gatilhos |
-| 8 | `0008_canais` | `canais_venda`, `canal_anuncios`, `pedidos_canal`, `pedido_canal_itens`, `eventos_integracao`, `api_chaves`, `outbox`; FKs `vendas.pedido_canal_id`, `venda_itens.pedido_canal_item_id`, `estoque_reservas.pedido_canal_item_id` | gatilhos |
-| 9 | `0009_fiscal` | `documentos_fiscais`, `eventos_fiscais`, `notas_recebidas`; FKs `documento_fiscal_id` em `vendas`, `ordens_servico` e `devolucoes` | gatilhos |
-| 10 | `0010_controle_busca` | `sequencias`, `auditoria` | append-only em `auditoria`; índices GIN `f_unaccent(lower(...)) gin_trgm_ops` em `produtos` (4 colunas), `clientes.nome` e `fornecedores.razao_social` |
+| 1 | `0000_extensoes_funcoes` | — | `pg_trgm`, `unaccent`; `f_unaccent`; `set_updated_at()`; `bloquear_alteracao()`; `bloquear_saida_status_final()`; `validar_empresa_grupo()` |
+| 2 | `0001_plataforma_auth`, `0002_…_gatilhos` | `tenants`, `empresas`, `usuarios`, `sessoes`, `contas_acesso`, `verificacoes`, `membros`, `credenciais_fiscais`; FK composta de `sessoes` → `membros` | `set_updated_at` |
+| 3 | `0003_referencia_global`, `0004_…_gatilhos` | `marcas_moto`, `modelos_moto`, com os índices `lower(nome)` | `set_updated_at` |
+| 4 | `0005_catalogo`, `0006_…_gatilhos` | `categorias`, `marcas`, `perfis_tributarios`, `produtos`, `produto_codigos_barras`, `produto_imagens`, `produto_aplicacoes`, `servicos`, `mecanicos`, `vendedores`, `tabelas_preco`, `tabela_preco_itens` | `set_updated_at` |
+| 5 | `0007_pessoas`, `0008_…_gatilhos` | `clientes`, `motos_cliente`, `fornecedores`, `fornecedor_produto_vinculos` | `set_updated_at`; `validar_empresa_grupo` em `clientes` e `fornecedores` |
+| 6 | `0009_estoque`, `0010_…_gatilhos` | `depositos` (com `vendavel` e `unique (empresa_id, id, vendavel)`), `estoque_saldos`, `movimentacoes_estoque`, `estoque_reservas` (sem as FKs de origem), `entradas_estoque`, `entrada_itens`, `inventarios`, `inventario_itens` | append-only e validação de estorno em `movimentacoes_estoque`; status final em `estoque_reservas`; `set_updated_at` |
+| 7 | `0011_documentos`, `0012_…_gatilhos` | `orcamentos`, `orcamento_itens`, `acertos_comissao`, `vendas` (sem as FKs para `pedidos_canal` e `documentos_fiscais`), `venda_itens`, `venda_pagamentos`, `ordens_servico`, `os_itens`, `os_pagamentos`, `os_historico_status`, `devolucoes`, `devolucao_itens`, `comissao_ajustes`; FK `estoque_reservas (empresa_id, os_item_id, produto_id)` | append-only em `os_historico_status` e `comissao_ajustes`; status final em `ordens_servico` e `vendas`; comissão congelada em `os_itens`, `vendas` e `ordens_servico`; `validar_empresa_grupo` em `vendas`; `set_updated_at` |
+| 8 | `0013_canais`, `0014_…_gatilhos` | `canais_venda`, `canal_anuncios`, `pedidos_canal`, `pedido_canal_itens`, `eventos_integracao`, `api_chaves`, `outbox`; FKs `vendas.pedido_canal_id`, `venda_itens.pedido_canal_item_id`, `estoque_reservas (empresa_id, pedido_canal_item_id, produto_id)` | `set_updated_at` |
+| 9 | `0015_fiscal`, `0016_…_gatilhos` | `documentos_fiscais`, `eventos_fiscais`, `notas_recebidas`; FKs `documento_fiscal_id` em `vendas`, `ordens_servico` e `devolucoes` | `set_updated_at` |
+| 10 | `0017_controle_busca`, `0018_…_gatilhos_indices` | `sequencias`, `auditoria` | append-only em `auditoria`; `set_updated_at` em `sequencias`; índices GIN `f_unaccent(lower(...)) gin_trgm_ops` em `produtos` (4 colunas), `clientes.nome` e `fornecedores.razao_social` |
 
 Observações:
 

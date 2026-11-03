@@ -22,6 +22,8 @@ export default defineConfig({
           name: "integration",
           include: ["src/**/*.integration.test.ts", "tests/integration/**/*.test.ts"],
           environment: "node",
+          // recria o schema do summer_test e aplica as migrações do zero (D011)
+          globalSetup: ["tests/integration/_setup-global.ts"],
           // testes de concorrência precisam de commits reais e banco exclusivo
           fileParallelism: false,
           testTimeout: 30_000,

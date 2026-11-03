@@ -41,13 +41,13 @@ Pré-requisito: Docker Desktop com integração WSL ativada.
 - [x] 0.2 Infra local
   - `docker-compose.yml` com Postgres 17 e MinIO, com bucket automático;
   - `.env.example` completo.
-- [ ] 0.3 Recurso de migrações
+- [x] 0.3 Recurso de migrações
   - `drizzle.config.ts`;
   - migrações SQL em `src/server/db/migrations/`;
   - `scripts/migrate.ts` (migrador do drizzle-orm, com advisory lock);
   - scripts `db:generate`, `db:generate:custom`, `db:migrate` e `db:status`;
   - teste: as migrações aplicam do zero num banco vazio.
-- [ ] 0.4 Banco
+- [x] 0.4 Banco
   - `src/server/db/index.ts`, com Pool único, `db` e `withTransaction`;
   - schema Drizzle de **todas** as tabelas aprovadas;
   - migrações custom: extensões, `f_unaccent`, gatilhos de `updated_at` e de append-only, índices de busca.
@@ -57,6 +57,13 @@ Pré-requisito: Docker Desktop com integração WSL ativada.
   - rateio de desconto;
   - `Decimal` e formatação pt-BR.
 - [ ] 0.6 Autenticação
+  - Obrigatório (revisão de isolamento):
+    - o `getContext()` confere a cada requisição membro ativo, empresa ativa e tenant `ativo`;
+    - o perfil é lido sempre do banco;
+    - o `cookieCache` do Better Auth fica desligado ou com a janela documentada;
+    - `admin_plataforma` e `empresa_ativa_id` são `input: false`;
+    - convite sem revelar se o e-mail já existe em outro tenant;
+    - OAuth do Mercado Livre fora das contas do Better Auth (vai em `canais_venda`).
   - Better Auth (e-mail e senha) e flag `admin_plataforma`;
   - `membros` e empresa ativa na sessão;
   - `getContext()`;

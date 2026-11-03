@@ -94,6 +94,7 @@ A referência completa, comentada, está no [`.env.example`](../.env.example). *
 | `PGBOSS_SCHEMA` | ✓ | ✓ | | `pgboss` |
 | `WORKER_CONCORRENCIA` | | ✓ | | ex.: `5` |
 | `MIGRAR_AO_INICIAR` | ✓ | ✓ | | `true` (se a proposta da seção 5 for aprovada) |
+| `MIGRACOES_DIR` | ✓ | ✓ | | opcional: pasta das migrações para o `migrate.mjs` (padrão `src/server/db/migrations`, relativo ao diretório de trabalho) |
 | `POSTGRES_*`, `MINIO_*` | | | | só o `docker-compose.yml` local |
 
 No Coolify:
@@ -308,13 +309,15 @@ ALTER DEFAULT PRIVILEGES FOR ROLE summer_owner IN SCHEMA public
 ```
 
 - **Migrações** (`DATABASE_URL_MIGRACAO`) usam `summer_owner`. **App e worker** (`DATABASE_URL`) usam `summer_app`.
-- **Append-only (modelo 1.6, D008):** o gatilho bloqueia `UPDATE` e `DELETE` em `movimentacoes_estoque`, `auditoria`, `os_historico_status` e `creditos_cliente`, mas **gatilho não impede `TRUNCATE`**. Por isso o `summer_app` nunca recebe `TRUNCATE`.
+- **Append-only (modelo 1.6, D008):** o gatilho bloqueia `UPDATE` e `DELETE` em `movimentacoes_estoque`, `auditoria` e `os_historico_status` (e `comissao_ajustes`, que só aceita o UPDATE que preenche o acerto), mas **gatilho não impede `TRUNCATE`**. Por isso o `summer_app` nunca recebe `TRUNCATE`.
   - Como reforço, depois da primeira migração:
 
     ```sql
     REVOKE TRUNCATE, UPDATE, DELETE
       ON movimentacoes_estoque, auditoria, os_historico_status
       FROM summer_app;
+    -- comissao_ajustes precisa do UPDATE que grava o acerto
+    REVOKE TRUNCATE, DELETE ON comissao_ajustes FROM summer_app;
     ```
 
   - Verificação (precisa devolver `f`):
@@ -404,7 +407,8 @@ ALTER DEFAULT PRIVILEGES FOR ROLE summer_owner IN SCHEMA public
 - [ ] **Domínios e DNS** de homologação e produção.
 - [ ] **Horário de funcionamento da loja**, para definir a janela de deploy de produção.
 - [ ] **Aprovar a forma de migrar no deploy** (seção 5, opção A ou B) e registrar em `docs/decisoes.md` (complementa a D010).
-- [ ] Fatia 0.3: `scripts/migrate.ts` lendo `DATABASE_URL_MIGRACAO` (com fallback para `DATABASE_URL`), alvo `migrate` e `docker/entrypoint.sh`.
+- [x] Fatia 0.3: `scripts/migrate.ts` lendo `DATABASE_URL_MIGRACAO` (com fallback para `DATABASE_URL`), com advisory lock (D023). Empacota em JS puro com esbuild (`--bundle --platform=node --format=esm --packages=external`), conferido.
+- [ ] Alvo `migrate` do Dockerfile, `docker/entrypoint.sh` e o passo de build que gera `dist/migrate.mjs`.
 - [ ] Fatia 0.11: `/api/health`, alvo `worker` (com tratamento de `SIGTERM` e arquivo de batimento para o healthcheck) e schema do pg-boss com o usuário restrito (seção 10).
 - [ ] **Teste de restauração** feito uma vez, com a data registrada na seção 9.
 - [ ] **Cofre de senhas** para `CHAVES_CIFRAGEM`, `BETTER_AUTH_SECRET` e senhas do banco de produção. Perder a `CHAVES_CIFRAGEM` = perder os tokens do Focus e do Mercado Livre.

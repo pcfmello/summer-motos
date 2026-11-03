@@ -43,6 +43,7 @@ Versões exatas: ver `package.json` depois da instalação.
 | `pnpm db:generate:custom --name <slug>` | cria uma migração SQL vazia (extensões, funções, gatilhos) |
 | `pnpm db:migrate` | aplica as migrações pendentes |
 | `pnpm db:status` | lista as migrações aplicadas e as pendentes |
+| `pnpm db:migrate:test` / `pnpm db:status:test` | o mesmo no banco de testes (`DATABASE_URL_TEST`) |
 | `pnpm db:seed` | seed de demonstração (só local e homologação; idempotente) |
 
 ## Migrações do banco
@@ -71,6 +72,11 @@ O banco só muda por migração versionada. É o único caminho, em todos os amb
   - `server/domain/*`: funções puras, sem banco e sem `Date.now()` escondido, com testes Vitest;
   - `server/actions/*`: ordem fixa, Zod → `getContext()` → permissão do perfil e módulo ligado → `withTransaction` → auditoria e outbox → `revalidatePath`;
   - `server/queries/*`: `server-only`, sempre filtradas por `empresaId`.
+- **`withTransaction` (D026):**
+  - fila (pg-boss) só depois do commit ou na mesma conexão;
+  - tudo o que decide é lido dentro do `fn`, com `FOR UPDATE`, em ordem de `produto_id`;
+  - nenhum estado acumulado fora do `fn`;
+  - nunca `redirect()`/`notFound()` dentro do `fn`.
 - **`getContext()`** retorna `{ usuario, tenantId, empresaId, perfil }` da sessão. `tenantId` e `empresaId` nunca vêm do cliente, e nenhum schema Zod de entrada aceita `empresaId`.
 - **Números:**
   - dinheiro `numeric(14,2)`, quantidade `numeric(14,4)`, custo `numeric(16,6)` e alíquota `numeric(7,4)`;

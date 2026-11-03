@@ -1,0 +1,139 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1793747678865,
+      "tag": "0000_extensoes_funcoes",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1793747682214,
+      "tag": "0001_plataforma_auth",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1793747683012,
+      "tag": "0002_plataforma_auth_gatilhos",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1793747685911,
+      "tag": "0003_referencia_global",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1793747688583,
+      "tag": "0004_referencia_global_gatilhos",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1793747691449,
+      "tag": "0005_catalogo",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1793747693642,
+      "tag": "0006_catalogo_gatilhos",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1793747696075,
+      "tag": "0007_pessoas",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1793747698477,
+      "tag": "0008_pessoas_gatilhos",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1793747701075,
+      "tag": "0009_estoque",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1793747704232,
+      "tag": "0010_estoque_gatilhos",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1793747707693,
+      "tag": "0011_documentos",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1793747712615,
+      "tag": "0012_documentos_gatilhos",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1793747710697,
+      "tag": "0013_canais",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1793747713716,
+      "tag": "0014_canais_gatilhos",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1793747717266,
+      "tag": "0015_fiscal",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1793747720317,
+      "tag": "0016_fiscal_gatilhos",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1793747722897,
+      "tag": "0017_controle_busca",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1793747725881,
+      "tag": "0018_controle_busca_gatilhos_indices",
+      "breakpoints": true
+    }
+  ]
+}

@@ -95,7 +95,7 @@ jobs:
           psql -h 127.0.0.1 -U summer -d summer -v ON_ERROR_STOP=1 -At \
             -c "SELECT name, default_version FROM pg_available_extensions WHERE name IN ('pg_trgm', 'unaccent') ORDER BY name"
 
-      # Fatia 0.3: os passos abaixo passam a rodar sozinhos quando scripts/migrate.ts existir.
+      # Fatia 0.3: scripts/migrate.ts (D010). Aplica no banco "summer" (DATABASE_URL_MIGRACAO).
       - name: Aplicar as migrações do zero (banco vazio)
         if: hashFiles('scripts/migrate.ts') != ''
         run: pnpm db:migrate
@@ -105,9 +105,21 @@ jobs:
         run: |
           pnpm db:migrate
           pnpm db:status
-      # TODO(fatia 0.3): conferir que o schema Drizzle não tem mudança sem migração
-      # (drizzle-kit check / generate sem diff), conforme a versão instalada.
 
+      # O drizzle-kit 0.31 não tem um "check de diff": gerar sem mudança não cria
+      # arquivo ("No schema changes"). Se criar, o schema mudou sem migração commitada.
+      - name: Conferir que o schema Drizzle não tem mudança sem migração
+        if: hashFiles('drizzle.config.ts') != ''
+        run: |
+          pnpm exec drizzle-kit check
+          pnpm db:generate --name ci_sem_mudanca
+          if [ -n "$(git status --porcelain -- src/server/db/migrations)" ]; then
+            echo "::error::O schema Drizzle mudou sem migração. Rode pnpm db:generate --name <slug> e commite o SQL e o snapshot."
+            git status --porcelain -- src/server/db/migrations
+            exit 1
+          fi
+
+      # O globalSetup recria o schema do summer_test e aplica as migrações do zero (D011).
       - name: Testes de integração (Postgres real)
         if: hashFiles('src/**/*.integration.test.ts', 'tests/integration/**/*.test.ts') != ''
         run: pnpm test:integration

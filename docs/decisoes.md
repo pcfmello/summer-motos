@@ -241,3 +241,87 @@ As perguntas D1 a D5 de `perguntas-abertas.md` não foram respondidas e seguem a
   - no balcão, o vendedor vem preenchido com quem está no caixa (se for vendedor) e pode ser trocado;
   - mão de obra cobrada a mais numa OS fechada se corrige com uma devolução de serviço, sem mexer no estoque nem na comissão do mecânico.
 - **Ainda abertas, só para o contador, sem travar a Entrega 0:** CFOP e natureza da operação, nota de garantia ao fornecedor e devolução de NFC-e.
+
+## D022 — Ordenação pt-BR por collation ICU na coluna (2026-11-03)
+
+- **Contexto:** o modelo (1.11) previa criar o banco com collation ICU `pt-BR`. Os bancos locais já existem com `en_US.utf8` (libc), e recriar o banco em cada ambiente é frágil. A imagem do Postgres 17 tem a collation `pt-BR-x-icu`.
+- **Decisão:**
+  - as colunas usadas para ordenar listas têm `COLLATE "pt-BR-x-icu"` no nível da coluna, declarado no schema Drizzle (`textoPtBr`, um `customType`), então sai na migração gerada, sem SQL manual;
+  - colunas: `produtos.descricao`, `clientes.nome` e `fornecedores.razao_social` (keyset, 1.11) e os nomes dos cadastros exibidos em ordem alfabética (`categorias`, `marcas`, `perfis_tributarios`, `servicos.descricao`, `mecanicos`, `vendedores`, `tabelas_preco`, `marcas_moto`, `modelos_moto`).
+- **Consequência:**
+  - o banco não precisa ser criado com ICU, e o `docs/deploy.md` não ganha esse passo (o modelo 1.11 pedia registrá-lo);
+  - os índices keyset `(empresa_id, descricao, id)` herdam a collation da coluna, então `ORDER BY descricao` usa o índice;
+  - o teste de integração confere "abacate, Ábaco, Bola, Zebra".
+
+## D023 — Recurso de migrações implementado (2026-11-03, detalha a D010)
+
+- **Versões:** `drizzle-orm` 0.45.4, `drizzle-kit` 0.31.11, `pg` 8.23.1 (conferido no código instalado).
+- **Layout:** `src/server/db/migrations/NNNN_<slug>.sql` + `meta/_journal.json` + `meta/NNNN_snapshot.json`. A numeração do drizzle-kit começa em `0000` (o modelo citava `0001`).
+- **Ordem:** a seção 15 do modelo, com um par por passo: a migração gerada do módulo e uma custom (`*_gatilhos`) com o que o Drizzle não gera. FKs para tabelas de passos seguintes entram no passo em que a tabela de destino nasce (ex.: `vendas.documento_fiscal_id` no passo 9). Resultado: 19 migrações.
+- **Aplicação (`scripts/migrate.ts` → `src/server/db/migracoes.ts`):**
+  - uma conexão só (`pg.Client`) com `pg_advisory_lock(91625834235218)` (bytes ASCII de "SUMMER"), espera máxima de 10 min (`lock_timeout`), e `pg_advisory_unlock` no fim;
+  - o `migrate()` do drizzle-orm 0.45 aplica **todas as pendentes numa transação só** e decide o que é pendente pelo `when` do journal, comparado com o `created_at` da última aplicada;
+  - por isso o script recusa, antes de aplicar, a migração **alterada depois de aplicada** (hash diferente) e a migração com `when` antigo nunca aplicada, que o Drizzle **pularia em silêncio**;
+  - migração aplicada sem arquivo (o banco à frente do código, caso do rollback da D020) só gera aviso;
+  - sai com 0 ou 1; nunca imprime usuário nem senha da URL.
+- **Scripts:** `db:generate`, `db:generate:custom`, `db:migrate`, `db:migrate:test` (`--banco=teste` → `DATABASE_URL_TEST`), `db:status` e `db:status:test`. O `db:status` sai com 1 se houver pendência, migração ignorada ou alterada.
+- **Empacotamento (D020):** `scripts/migrate.ts`, `scripts/_ambiente.ts` e `src/server/db/migracoes.ts` só usam imports relativos e de pacotes. Conferido: `esbuild --bundle --platform=node --format=esm --packages=external` gera um `migrate.mjs` de 6,5 kB que roda com `node`. `MIGRACOES_DIR` (opcional) aponta a pasta no container.
+- **CI:** além de aplicar do zero e reaplicar, `drizzle-kit check` e um `db:generate` que não pode criar arquivo (schema sem migração commitada).
+- **Testes:** o `globalSetup` do projeto `integration` recria o schema do `summer_test` e aplica as migrações do zero; os testes exigem um banco cujo nome termine em `_test`.
+
+## D024 — Conexão e `withTransaction` (2026-11-03)
+
+- **Decisão:**
+  - `src/server/db/conexao.ts` (sem `server-only`): `criarPool`, `criarBanco` e `criarWithTransaction`, usados por scripts, worker e testes;
+  - `src/server/db/index.ts` (com `server-only`): o `Pool` único do app em escopo de módulo (guardado no `globalThis` fora de produção, por causa do HMR), `db` e `withTransaction`. Sem `DATABASE_URL`, falha ao carregar, exceto durante o `next build`;
+  - `withTransaction(fn, { isolamento, modoAcesso, tentativas })`: padrão `read committed`, `read write` e 1 tentativa. Com `tentativas` (máximo 5), repete a transação inteira em `40001` (serialização) e `40P01` (deadlock), com espera crescente e variação. O SQLSTATE é lido também de dentro do `DrizzleQueryError` (`cause`);
+  - o `Pool` tem ouvinte de `error` (cliente ocioso que cai não derruba o processo) e `application_name` (`summer-app`, `summer-migrate`).
+- **Consequência:** o worker (fatia 0.11) cria o próprio Pool com `criarPool`, porque o `server-only` lança erro fora do Next. Retentativa só em função sem efeito fora do banco.
+
+## D025 — Convenções do schema Drizzle (2026-11-03)
+
+- **Nomes:** FK `<tabela>_<coluna>_fk`; `unique (empresa_id, id)` como `<tabela>_empresa_id_id_key` em toda tabela [N] (1.1), inclusive as que ninguém referencia; CHECK de coluna `<tabela>_<coluna>_check` (1.3); CHECK de várias colunas `<tabela>_<assunto>_check`.
+- **Tipos:** `bytea` por `customType` (o Drizzle 0.45 não tem `bytea`; o drizzle-kit o escreve entre aspas, `"bytea"`, o que o Postgres aceita); `bigint` em modo `number` para numeração; `date` em modo `string`; `timestamptz` em modo `Date`.
+- **Índices "mais recentes":** `DESC NULLS FIRST`, o mesmo sentido do `ORDER BY col DESC, id DESC` que o Drizzle gera (`desc()`). O drizzle-kit escreve `DESC NULLS LAST` por padrão, o que impediria o uso do índice na paginação keyset.
+- **Tipos TypeScript:** o terceiro argumento de `pgTable` é anotado (`(t): Restricoes => [...]`). Sem isso, tabelas que se referenciam (vendas ↔ orçamentos ↔ OS ↔ documentos fiscais) entram em ciclo na inferência do TypeScript. Os módulos se importam em ciclo só dentro desses callbacks, que o Drizzle avalia de forma preguiçosa.
+- **Append-only:** `bloquear_alteracao()` (SQLSTATE `23001`, `restrict_violation`) em `movimentacoes_estoque`, `os_historico_status` e `auditoria`. `comissao_ajustes` tem gatilho próprio: só aceita o UPDATE que preenche `acerto_comissao_id` de nulo para um valor, sem mudar outra coluna, e nesse caso o próprio gatilho atualiza o `updated_at`. As quatro ficam sem o `set_updated_at` (1.6).
+- **Busca:** os 6 índices GIN `f_unaccent(lower(col)) gin_trgm_ops` ficam na custom do passo 10 (como no modelo), fora do snapshot do drizzle-kit. Um índice novo desse tipo também vai em migração custom.
+
+## D026 — Endurecimento do schema depois das revisões (2026-11-03)
+
+As revisões de estoque e de isolamento do schema não acharam vazamento entre empresas. Os achados viraram regras no banco, aplicadas antes de qualquer migração sair do ambiente local, com as migrações regeneradas:
+
+- **Reservas:**
+  - a reserva única por item vale para qualquer status menos `liberada`, então um item consumido nunca ganha outra reserva;
+  - a reserva aponta para o mesmo produto do item.
+- **Status finais não voltam:**
+  - OS `entregue`/`cancelada` (OS não reabre, D018);
+  - venda `cancelada`;
+  - reserva `consumida`/`liberada`;
+  - entrada confirmada não vira `cancelada`.
+- **Depósito "Garantia":**
+  - todo depósito nasce não vendável (`vendavel = false`), e o "Loja" é criado explicitamente como vendável;
+  - vendas, OS e reservas só aceitam depósito vendável, garantido por FK.
+- **Estorno:**
+  - é sempre total, com o mesmo produto, depósito e custo unitário e a quantidade inversa (gatilho);
+  - a recusa parcial do fornecedor vira `ajuste_manual` com motivo.
+- **Inventário da virada:**
+  - a diferença negativa usa `ajuste_inventario`, e o `saldo_inicial` só soma;
+  - o `saldo_inicial` aceita custo nulo (peça sem custo, D019-D5).
+- **Devolução de cliente com custo nulo:** entra pelo custo médio atual.
+- **Comissão congelada não muda** (gatilho): valor, mecânico e, no documento fechado, também o `vendedor_id`, porque trocá-lo mudaria quem recebe. A correção é por `comissao_ajustes`.
+- **CHECKs de linha:**
+  - total do item = `round(qtd × preço, 2)` − descontos;
+  - comissão do vendedor = `round(base × % ÷ 100, 2)`;
+  - quantidade convertida da entrada.
+- **`empresa_grupo_id`:** gatilho que exige o mesmo tenant nas duas empresas.
+- **Únicos sobre ids de outras tabelas:** prefixados com `empresa_id`.
+- **Autorizador do desconto:** FK composta para `membros` da mesma empresa.
+- **`withTransaction`:**
+  - `lock_timeout` de 5 s por padrão (opção `esperaLockMs`), o que complementa a D024;
+  - regras da retentativa:
+    - nada de fila fora da transação;
+    - ler tudo o que decide dentro do `fn`, com `FOR UPDATE`;
+    - sem estado acumulado fora do `fn`;
+    - sem `redirect()` dentro do `fn`.
+- **Testes:** catálogo de constraints (toda FK entre tabelas de empresa começa por `empresa_id`) e isolamento X×Y no banco.
