@@ -1,0 +1,31 @@
+# dependências
+node_modules/
+.pnpm-store/
+
+# Next.js
+.next/
+out/
+next-env.d.ts
+*.tsbuildinfo
+
+# build e testes
+dist/
+coverage/
+playwright-report/
+test-results/
+
+# ambiente (o .env.example é versionado)
+.env
+.env.*
+!.env.example
+
+# sistema e editor
+.DS_Store
+*.log
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+
+# Claude Code (local, não versionado)
+.claude/settings.local.json
+.claude/agent-memory-local/
