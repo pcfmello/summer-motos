@@ -95,13 +95,11 @@ jobs:
           psql -h 127.0.0.1 -U summer -d summer -v ON_ERROR_STOP=1 -At \
             -c "SELECT name, default_version FROM pg_available_extensions WHERE name IN ('pg_trgm', 'unaccent') ORDER BY name"
 
-      # Fatia 0.3: scripts/migrate.ts (D010). Aplica no banco "summer" (DATABASE_URL_MIGRACAO).
+      # scripts/migrate.ts (D010, D023): Drizzle + schema do pg-boss, no banco "summer".
       - name: Aplicar as migrações do zero (banco vazio)
-        if: hashFiles('scripts/migrate.ts') != ''
         run: pnpm db:migrate
 
       - name: Reaplicar as migrações (não pode haver pendência nem erro)
-        if: hashFiles('scripts/migrate.ts') != ''
         run: |
           pnpm db:migrate
           pnpm db:status
@@ -109,7 +107,6 @@ jobs:
       # O drizzle-kit 0.31 não tem um "check de diff": gerar sem mudança não cria
       # arquivo ("No schema changes"). Se criar, o schema mudou sem migração commitada.
       - name: Conferir que o schema Drizzle não tem mudança sem migração
-        if: hashFiles('drizzle.config.ts') != ''
         run: |
           pnpm exec drizzle-kit check
           pnpm db:generate --name ci_sem_mudanca
@@ -121,7 +118,6 @@ jobs:
 
       # O globalSetup recria o schema do summer_test e aplica as migrações do zero (D011).
       - name: Testes de integração (Postgres real)
-        if: hashFiles('src/**/*.integration.test.ts', 'tests/integration/**/*.test.ts') != ''
         run: pnpm test:integration
 
   build:
@@ -136,6 +132,13 @@ jobs:
       - run: pnpm build
       - name: Conferir a saída standalone
         run: test -f .next/standalone/server.js
+      # dist/migrate.mjs e dist/worker.mjs (esbuild); falha se o server-only entrar no bundle
+      - run: pnpm build:scripts
+      - name: Conferir que os bundles rodam sem node_modules
+        run: |
+          mkdir -p /tmp/sem-deps && cp dist/*.mjs /tmp/sem-deps/
+          cd /tmp/sem-deps && node -e "import('./worker.mjs').catch(()=>{})" 2>&1 | grep -q "DATABASE_URL não está definida" \
+            || { echo "::error::dist/worker.mjs não carregou sozinho"; exit 1; }
 
   imagem:
     name: Imagem Docker e docker-compose
@@ -165,39 +168,95 @@ jobs:
 
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
+      # Os três alvos compartilham os estágios deps e build: o mesmo cache serve aos três.
       - name: Build do alvo app
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           target: app
           tags: summer-app:ci
+          build-args: SUMMER_VERSAO=ci-${{ github.sha }}
           load: true
           push: false
-          cache-from: type=gha,scope=summer-app
-          cache-to: type=gha,scope=summer-app,mode=max
+          cache-from: type=gha,scope=summer
+          cache-to: type=gha,scope=summer,mode=max
 
-      - name: Conferir o usuário da imagem (não pode ser root)
-        run: |
-          usuario=$(docker image inspect summer-app:ci --format '{{.Config.User}}')
-          echo "usuário: ${usuario}"
-          test -n "${usuario}" && test "${usuario}" != "root" && test "${usuario}" != "0"
+      - name: Build do alvo worker
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          target: worker
+          tags: summer-worker:ci
+          build-args: SUMMER_VERSAO=ci-${{ github.sha }}
+          load: true
+          push: false
+          cache-from: type=gha,scope=summer
 
-      # Fatia 0.11: passa a rodar sozinho quando a rota /api/health existir.
-      - name: Subir a imagem e esperar o HEALTHCHECK ficar healthy
-        if: hashFiles('src/app/api/health/route.ts') != ''
+      - name: Build do alvo migrate
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          target: migrate
+          tags: summer-migrate:ci
+          load: true
+          push: false
+          cache-from: type=gha,scope=summer
+
+      - name: Conferir o usuário das imagens (não pode ser root)
         run: |
-          docker run -d --name summer-app --network host \
-            -e SUMMER_AMBIENTE -e BETTER_AUTH_SECRET -e BETTER_AUTH_URL -e CHAVES_CIFRAGEM \
-            -e DATABASE_URL=postgres://summer:summer_ci@127.0.0.1:5432/summer \
-            summer-app:ci
+          for alvo in app worker migrate; do
+            usuario=$(docker image inspect "summer-${alvo}:ci" --format '{{.Config.User}}')
+            echo "${alvo}: usuário ${usuario}"
+            test -n "${usuario}" && test "${usuario}" != "root" && test "${usuario}" != "0"
+          done
+
+      # Banco vazio: o migrate aplica tudo (Drizzle + schema do pg-boss) e sai com 0.
+      - name: Alvo migrate no banco vazio
+        run: |
+          docker run --rm --network host \
+            -e DATABASE_URL_MIGRACAO=postgres://summer:summer_ci@127.0.0.1:5432/summer \
+            summer-migrate:ci
+
+      # Opção A da D020: app e worker sobem juntos com MIGRAR_AO_INICIAR=true
+      # (o advisory lock serializa; aqui não há pendência, porque o passo anterior migrou).
+      - name: Subir app e worker e esperar o HEALTHCHECK ficar healthy
+        run: |
+          comum="--network host -e SUMMER_AMBIENTE -e BETTER_AUTH_SECRET -e BETTER_AUTH_URL -e CHAVES_CIFRAGEM
+            -e DATABASE_URL=postgres://summer:summer_ci@127.0.0.1:5432/summer
+            -e DATABASE_URL_MIGRACAO=postgres://summer:summer_ci@127.0.0.1:5432/summer
+            -e MIGRAR_AO_INICIAR=true -e PGBOSS_SCHEMA=pgboss -e WORKER_CONCORRENCIA=2"
+          docker run -d --name summer-app ${comum} summer-app:ci
+          docker run -d --name summer-worker ${comum} summer-worker:ci
           for _ in $(seq 1 30); do
-            estado=$(docker inspect --format '{{.State.Health.Status}}' summer-app)
-            echo "health: ${estado}"
-            if [ "${estado}" = "healthy" ]; then
+            app=$(docker inspect --format '{{.State.Health.Status}}' summer-app)
+            worker=$(docker inspect --format '{{.State.Health.Status}}' summer-worker)
+            echo "app: ${app} | worker: ${worker}"
+            if [ "${app}" = "healthy" ] && [ "${worker}" = "healthy" ]; then
               curl -fsS http://127.0.0.1:3000/api/health
               exit 0
             fi
             sleep 5
           done
           docker logs summer-app
+          docker logs summer-worker
           exit 1
+
+      - name: /api/health responde 503 sem banco
+        run: |
+          docker run -d --name summer-app-sem-banco -p 127.0.0.1:3100:3000 \
+            -e SUMMER_AMBIENTE -e BETTER_AUTH_SECRET -e BETTER_AUTH_URL -e CHAVES_CIFRAGEM \
+            -e DATABASE_URL=postgres://summer:summer_ci@127.0.0.1:5999/summer \
+            summer-app:ci
+          for _ in $(seq 1 20); do
+            codigo=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3100/api/health || true)
+            if [ "${codigo}" != "000" ]; then break; fi
+            sleep 1
+          done
+          echo "HTTP ${codigo}"
+          test "${codigo}" = "503"
+
+      - name: Worker para com SIGTERM (saída 0)
+        run: |
+          docker stop summer-worker
+          docker logs summer-worker | tail -5
+          test "$(docker inspect --format '{{.State.ExitCode}}' summer-worker)" = "0"

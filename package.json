@@ -6,6 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
+    "worker": "node --env-file-if-exists=.env --import tsx src/worker/index.ts",
+    "build:scripts": "node scripts/build-scripts.mjs",
     "lint": "eslint",
     "typecheck": "next typegen && tsc --noEmit",
     "test": "vitest run --project unit --passWithNoTests",

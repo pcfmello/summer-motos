@@ -12,6 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // bundles gerados por pnpm build:scripts (fora do git)
+    "dist/**",
   ]),
 ]);
 

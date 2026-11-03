@@ -138,6 +138,13 @@ export type OpcoesMigracao = {
   /** Tempo máximo esperando outro processo terminar de migrar. Padrão: 10 min. */
   esperaLockMs?: number;
   log?: (mensagem: string) => void;
+  /**
+   * Passo extra que roda na mesma conexão, ainda com o advisory lock, depois das
+   * migrações do Drizzle (inclusive quando não há pendência). Usado para instalar
+   * e migrar o schema do pg-boss (`src/server/fila/instalar.ts`). Se lançar, o
+   * `migrate` falha como uma migração falharia.
+   */
+  depois?: (cliente: Client) => Promise<void>;
 };
 
 /**
@@ -182,6 +189,7 @@ export async function aplicarMigracoes(opcoes: OpcoesMigracao): Promise<Resultad
     }
     if (antes.pendentes.length === 0) {
       log("nenhuma migração pendente");
+      if (opcoes.depois) await opcoes.depois(cliente);
       return { aplicadas: [], status: antes };
     }
     for (const m of antes.pendentes) log(`pendente: ${m.tag}`);
@@ -201,6 +209,7 @@ export async function aplicarMigracoes(opcoes: OpcoesMigracao): Promise<Resultad
     if (depois.pendentes.length > 0) {
       throw new Error(`ainda há migrações pendentes: ${depois.pendentes.map((m) => m.tag).join(", ")}`);
     }
+    if (opcoes.depois) await opcoes.depois(cliente);
     return { aplicadas, status: depois };
   } finally {
     if (travado) {

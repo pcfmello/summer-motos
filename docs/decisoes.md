@@ -325,3 +325,55 @@ As revisões de estoque e de isolamento do schema não acharam vazamento entre e
     - sem estado acumulado fora do `fn`;
     - sem `redirect()` dentro do `fn`.
 - **Testes:** catálogo de constraints (toda FK entre tabelas de empresa começa por `empresa_id`) e isolamento X×Y no banco.
+
+## D027 — Autenticação, contexto e permissões (2026-11-03)
+
+- **Better Auth 1.7.16:**
+  - mapeamento pelo schema (`{ user: usuarios, session: sessoes, … }`), `generateId: "uuid"`, e `admin_plataforma`/`empresa_ativa_id` com `input: false`;
+  - cadastro público desligado (`disableSignUp` e `disabledPaths` para sign-up, update-user, update-session, change-email, delete-user, contas sociais e de token);
+  - senha de 10 a 128 caracteres, sessões revogadas na redefinição de senha e telemetria desligada;
+  - sessão de 7 dias, renovada a cada dia, com **`cookieCache` desligado**;
+  - cookies com prefixo `summer`.
+- **Login** pelo cliente HTTP do Better Auth, não por server action, porque o limite de tentativas só roda no roteador HTTP. A mensagem de erro é a mesma para e-mail inexistente e senha errada.
+- **Limite de tentativas em memória**, por IP + rota:
+  - login: 10 por minuto (a loja inteira costuma sair pelo mesmo IP);
+  - pedido de redefinição: 3 em 15 minutos;
+  - redefinição e troca de senha: 5 em 15 minutos.
+  - O IP vem de `x-forwarded-for` com `BETTER_AUTH_TRUSTED_PROXIES`. Com mais de uma réplica, o limite passa para o banco (migração aditiva).
+- **`getContext()`:**
+  - núcleo testável (`contexto-nucleo.ts`, com o banco injetado) e uma casca `server-only` com `React.cache` por requisição;
+  - a cada requisição confere membro ativo, empresa ativa e tenant ativo, e lê perfil e módulos do banco;
+  - se a empresa ativa ficar inválida, cai na primeira empresa válida, gravada na sessão;
+  - o admin da plataforma sem membro não recebe contexto de empresa.
+- **Rotas:**
+  - o `proxy.ts` só redireciona quem não tem cookie; a checagem real é feita no servidor (`exigirContexto`, `exigirAdminPlataforma`);
+  - páginas `/sem-acesso` e `/admin` (provisória até a 0.10);
+  - `destinoSeguro` contra open redirect.
+- **`trocarEmpresa`:** é a única exceção do `empresaId` vindo do cliente, validada num único UPDATE com `EXISTS` (membro, empresa e tenant ativos), com mensagem genérica na recusa.
+- **Permissões** (`server/auth/permissoes.ts`): matriz por perfil com capacidades, `exigirPermissao`, `exigirModulo` e `veCusto` (dono e estoque). O menu é derivado da matriz e dos módulos. Os pontos que a especificação não definia estão em `perguntas-abertas.md` (P8).
+- **PIN do dono:**
+  - de 6 a 8 dígitos, com hash scrypt do Better Auth;
+  - a validação roda numa transação própria, para o contador de falhas gravar mesmo se a venda for desfeita;
+  - as linhas dos donos são travadas em ordem de `usuario_id`;
+  - 5 erros bloqueiam todos os donos livres da empresa por 15 minutos.
+- **Camada `server/servicos/*`:** operações de banco reaproveitadas por actions, worker e scripts (sequências, auditoria). Recebem o `tx`, sem `server-only` e com imports relativos.
+  - `proximoNumero` faz `INSERT … ON CONFLICT DO NOTHING` seguido de `UPDATE … RETURNING`.
+  - A auditoria remove, em qualquer nível, campos com `cifrad`, `hash`, `senha`, `password`, `token`, `secret`, `segredo` e `csc`, além dos binários.
+
+## D028 — Worker, fila, healthcheck e imagens (2026-11-03)
+
+- **Fila (pg-boss 12):**
+  - **Instalação e privilégios:** o schema `pgboss` é criado e atualizado pelo `migrate`, com a credencial de dono, ainda segurando o advisory lock da D023. O usuário do app recebe só USAGE, DML e EXECUTE no schema da fila, sem CREATE nem TRUNCATE.
+  - **Worker sem DDL em runtime:** `migrate: false`, `createSchema: false` e filas não particionadas. O pg-boss usa o pool interno dele (até 4 conexões); o worker tem um Pool de negócio próprio (`criarPool`).
+  - **Risco a revisar a cada versão:** a atualização usa `migrateCommands` interno do pg-boss. O pacote está fixado em versão exata, e `tests/integration/fila.test.ts` cobre a instalação e a migração.
+- **`/api/health`:**
+  - dinâmica, com `select 1` e prazo de 2 s;
+  - 200 `{status, banco, versao}` ou 503, sem expor erro;
+  - a versão vem de `SUMMER_VERSAO` (build arg) ou do `package.json`.
+- **Batimento do worker:** a cada 15 s, só com o banco respondendo. O HEALTHCHECK exige menos de 60 s. No SIGTERM, o `boss.stop()` gracioso tem até 8 s.
+- **Bundles:** `dist/migrate.mjs` e `dist/worker.mjs` (esbuild) são autossuficientes, com `pg`, `pg-boss` e `drizzle-orm` embutidos. O build falha se `server-only` entrar num deles.
+- **Dockerfile:**
+  - alvos `app` (último, padrão), `worker` e `migrate`, todos com usuário não-root;
+  - o `docker/entrypoint.sh` aplica a D020 e exige `DATABASE_URL_MIGRACAO` quando `MIGRAR_AO_INICIAR=true`, sem fallback;
+  - `start-period` de 60 s.
+- **CI:** builds dos três alvos, migração num banco vazio, app e worker saudáveis, 503 sem banco e SIGTERM do worker.

@@ -2,13 +2,17 @@
 #
 # SUMMER: imagens de produção (multi-stage).
 #
-# Alvos:
-#   app      servidor Next.js (output: "standalone")              -> ativo
-#   worker   consumidor da fila pg-boss (src/worker/index.ts)      -> comentado: habilitar na fatia 0.11
-#   migrate  aplica as migrações (scripts/migrate.ts) e sai        -> comentado: habilitar na fatia 0.3
+# Alvos (todos com o usuário node, uid 1000):
+#   app      servidor Next.js (output: "standalone"), porta 3000, HEALTHCHECK em /api/health
+#   worker   consumidor da fila pg-boss (dist/worker.mjs), HEALTHCHECK pelo arquivo de batimento
+#   migrate  aplica as migrações (dist/migrate.mjs) e sai; uso manual (restauração, emergência)
 #
-# Build local:  docker build --target app -t summer-app .
-# No Coolify:   campo "Docker build stage target" = app (ou worker). Ver docs/deploy.md.
+# app e worker usam o docker/entrypoint.sh: com MIGRAR_AO_INICIAR=true, migram
+# antes de subir (D020, opção A). O app é o último estágio: "docker build ." gera o app.
+#
+# Build local:  docker buildx build --target app|worker|migrate -t summer-<alvo> --load .
+# No Coolify:   campo "Docker build stage target" = app ou worker. Ver docs/deploy.md.
+# Versão:       --build-arg SUMMER_VERSAO=v0.1.0 (opcional; sem ela, o version do package.json)
 #
 # Nenhum segredo entra na imagem: todas as variáveis (DATABASE_URL, BETTER_AUTH_SECRET,
 # CHAVES_CIFRAGEM...) chegam só em runtime, pelo ambiente do container.
@@ -37,25 +41,67 @@ RUN --mount=type=cache,id=summer-pnpm-store,target=/pnpm/store \
     pnpm install --frozen-lockfile --store-dir /pnpm/store
 
 # -----------------------------------------------------------------------------
-# build: next build (gera .next/standalone)
+# build: next build (gera .next/standalone) e build:scripts (gera dist/migrate.mjs
+# e dist/worker.mjs com o esbuild, autossuficientes: não precisam de node_modules)
 # -----------------------------------------------------------------------------
 FROM deps AS build
 COPY . .
 # public/ pode não existir num clone limpo (o git não guarda pasta vazia)
 RUN --mount=type=cache,id=summer-next-cache,target=/app/.next/cache \
-    mkdir -p public && pnpm build
+    mkdir -p public && pnpm build && pnpm build:scripts
 
 # -----------------------------------------------------------------------------
-# app: imagem final do servidor web
+# runtime: base comum das três imagens finais
+# Leva o migrate.mjs e as migrações SQL: o app e o worker migram na subida (D020).
+# Os arquivos ficam com dono root e só leitura para o usuário node.
 # -----------------------------------------------------------------------------
-FROM node:${NODE_VERSION}-bookworm-slim AS app
+FROM node:${NODE_VERSION}-bookworm-slim AS runtime
+ENV NODE_ENV=production \
+    NEXT_TELEMETRY_DISABLED=1
+WORKDIR /app
+COPY --link --chmod=755 docker/entrypoint.sh /usr/local/bin/summer-entrypoint
+COPY --link --from=build /app/dist/migrate.mjs ./dist/migrate.mjs
+# mesmo caminho relativo do código (PASTA_MIGRACOES_PADRAO): sem MIGRACOES_DIR
+COPY --link --from=build /app/src/server/db/migrations ./src/server/db/migrations
+
+# -----------------------------------------------------------------------------
+# migrate: aplica as migrações e sai (D010). Sem entrypoint.
+# Uso:  docker run --rm -e DATABASE_URL_MIGRACAO=... -e DATABASE_URL=... summer-migrate
+# (DATABASE_URL é opcional: se o usuário for outro, recebe o uso da fila do pg-boss)
+# -----------------------------------------------------------------------------
+FROM runtime AS migrate
+LABEL org.opencontainers.image.title="summer-migrate" \
+      org.opencontainers.image.description="SUMMER: aplica as migrações do banco e sai"
+USER node
+CMD ["node", "dist/migrate.mjs"]
+
+# -----------------------------------------------------------------------------
+# worker: consumidor da fila pg-boss. Mesmo código do app, outro processo.
+# Sem HTTP: o HEALTHCHECK confere a idade do arquivo de batimento, que o worker
+# regrava a cada 15 s enquanto o banco responde (src/worker/worker.ts).
+# SIGTERM: boss.stop() gracioso, até 8 s (cabe nos 10 s padrão do docker stop).
+# -----------------------------------------------------------------------------
+FROM runtime AS worker
+LABEL org.opencontainers.image.title="summer-worker" \
+      org.opencontainers.image.description="SUMMER: worker da fila (pg-boss)"
+COPY --link --from=build /app/dist/worker.mjs ./dist/worker.mjs
+ARG SUMMER_VERSAO=""
+ENV SUMMER_VERSAO=${SUMMER_VERSAO}
+USER node
+HEALTHCHECK --interval=15s --timeout=5s --start-period=60s --retries=3 \
+  CMD ["node", "-e", "const f=require('path').join(require('os').tmpdir(),'summer-worker-batimento');let ok=false;try{ok=Date.now()-require('fs').statSync(f).mtimeMs<60000}catch{}process.exit(ok?0:1)"]
+ENTRYPOINT ["summer-entrypoint"]
+CMD ["node", "dist/worker.mjs"]
+
+
+# -----------------------------------------------------------------------------
+# app: imagem final do servidor web (último estágio = alvo padrão)
+# -----------------------------------------------------------------------------
+FROM runtime AS app
 LABEL org.opencontainers.image.title="summer-app" \
       org.opencontainers.image.description="SUMMER: servidor web (Next.js standalone)"
-ENV NODE_ENV=production \
-    NEXT_TELEMETRY_DISABLED=1 \
-    PORT=3000 \
+ENV PORT=3000 \
     HOSTNAME=0.0.0.0
-WORKDIR /app
 
 # Usuário "node" (uid/gid 1000) da imagem oficial. Numérico por causa do --link.
 # O Next grava cache em .next em runtime, por isso o dono é o node.
@@ -63,64 +109,17 @@ COPY --link --from=build --chown=1000:1000 /app/.next/standalone ./
 COPY --link --from=build --chown=1000:1000 /app/.next/static ./.next/static
 COPY --link --from=build --chown=1000:1000 /app/public ./public
 
-# TODO(fatia 0.3, proposta em docs/deploy.md seção 5): migração na subida do container.
-# COPY --link --from=build --chown=1000:1000 /app/dist/migrate.mjs ./migrate.mjs
-# COPY --link --chmod=755 docker/entrypoint.sh /usr/local/bin/summer-entrypoint
-# ENTRYPOINT ["summer-entrypoint"]
-
+ARG SUMMER_VERSAO=""
+ENV SUMMER_VERSAO=${SUMMER_VERSAO}
 USER node
 EXPOSE 3000
 
-# /api/health testa o banco (SELECT 1 com timeout) e responde 503 se ele não
+# /api/health testa o banco (SELECT 1 com prazo de 2 s) e responde 503 se ele não
 # responder. Usa o fetch do próprio Node: a imagem slim não tem curl nem wget.
 # O Coolify usa este HEALTHCHECK no lugar do configurado no painel.
-HEALTHCHECK --interval=15s --timeout=5s --start-period=40s --retries=3 \
+# start-period de 60 s: inclui a migração na subida (MIGRAR_AO_INICIAR=true).
+HEALTHCHECK --interval=15s --timeout=5s --start-period=60s --retries=3 \
   CMD ["node", "-e", "fetch('http://127.0.0.1:'+(process.env.PORT||3000)+'/api/health',{signal:AbortSignal.timeout(4000)}).then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
 
+ENTRYPOINT ["summer-entrypoint"]
 CMD ["node", "server.js"]
-
-# -----------------------------------------------------------------------------
-# prod-deps / worker / migrate: habilitar quando os arquivos de origem existirem.
-#
-# Decisão pendente (fatia 0.3 / 0.11): rodar TypeScript em produção sem tsx.
-#   Opção A: empacotar src/worker/index.ts e scripts/migrate.ts com esbuild em
-#            dist/*.mjs no estágio build (resolve o alias "@/"); a imagem leva só
-#            o arquivo empacotado + node_modules de produção.
-#   Opção B: node --experimental-strip-types (padrão no Node 22.18+), mas os
-#            imports "@/..." não funcionam sem bundler.
-# Os blocos abaixo assumem a opção A, com os scripts build:worker e build:migrate.
-# -----------------------------------------------------------------------------
-
-# --- dependências de produção (worker e migrate) -----------------------------
-# FROM base AS prod-deps
-# COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
-# RUN --mount=type=cache,id=summer-pnpm-store,target=/pnpm/store \
-#     pnpm install --frozen-lockfile --prod --store-dir /pnpm/store
-
-# --- worker: habilitar na fatia 0.11 (esqueleto do worker pg-boss) ------------
-# Mesmo código do app, outro processo. Precisa tratar SIGTERM (boss.stop()).
-# FROM node:${NODE_VERSION}-bookworm-slim AS worker
-# LABEL org.opencontainers.image.title="summer-worker"
-# ENV NODE_ENV=production
-# WORKDIR /app
-# COPY --link --from=prod-deps --chown=1000:1000 /app/node_modules ./node_modules
-# COPY --link --from=build --chown=1000:1000 /app/package.json ./package.json
-# COPY --link --from=build --chown=1000:1000 /app/dist/worker.mjs ./worker.mjs
-# USER node
-# Sem HTTP: o healthcheck lê um arquivo de batimento que o worker atualiza.
-# HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
-#   CMD ["node", "-e", "const s=require('fs').statSync('/tmp/worker-vivo');process.exit(Date.now()-s.mtimeMs<90000?0:1)"]
-# CMD ["node", "worker.mjs"]
-
-# --- migrate: habilitar na fatia 0.3 (recurso de migrações, D010) -------------
-# Roda e sai. Só o necessário para aplicar as migrações (sem drizzle-kit).
-# Uso manual:  docker run --rm --env DATABASE_URL_MIGRACAO=... summer-migrate
-# FROM node:${NODE_VERSION}-bookworm-slim AS migrate
-# LABEL org.opencontainers.image.title="summer-migrate"
-# ENV NODE_ENV=production
-# WORKDIR /app
-# COPY --link --from=prod-deps --chown=1000:1000 /app/node_modules ./node_modules
-# COPY --link --from=build --chown=1000:1000 /app/dist/migrate.mjs ./migrate.mjs
-# COPY --link --from=build --chown=1000:1000 /app/src/server/db/migrations ./src/server/db/migrations
-# USER node
-# CMD ["node", "migrate.mjs"]

@@ -1,8 +1,8 @@
 # Deploy, ambientes e backup: SUMMER
 
-> **Status:** rascunho da Entrega 0 (fatias 0.2 e 0.13). Ainda não há repositório no GitHub nem acesso ao Coolify. Os passos de painel estão na seção 12 e as pendências na seção 13.
+> **Status:** Entrega 0 (fatias 0.2, 0.11 e 0.13). Imagens `app`, `worker` e `migrate`, healthcheck e migração na subida (D020) prontos e testados com Docker local em 03/11/2026 (seção 5). Ainda não há repositório no GitHub nem acesso ao Coolify. Os passos de painel estão na seção 12 e as pendências na seção 13.
 >
-> Documentação do Coolify e do Cloudflare R2 consultada em **03/11/2026**. As fontes estão no fim do documento. Antes de configurar o painel, confira os nomes dos campos na versão instalada do Coolify.
+> Documentação do Coolify, do pg-boss e do Cloudflare R2 consultada em **03/11/2026**. As fontes estão no fim do documento. Antes de configurar o painel, confira os nomes dos campos na versão instalada do Coolify.
 
 ## Sumário
 
@@ -59,16 +59,32 @@ flowchart LR
 
 `Dockerfile` multi-stage na raiz, com Node `22.23.4` (`bookworm-slim`) e pnpm via corepack (a versão vem do `packageManager` do `package.json`):
 
-| Alvo | Para quê | Estado |
-|---|---|---|
-| `app` | servidor Next.js a partir do `output: "standalone"` (`node server.js`, porta 3000), usuário `node` (uid 1000) e `HEALTHCHECK` em `/api/health` | **ativo** |
-| `worker` | consumidor da fila pg-boss (`src/worker/index.ts`) | comentado; habilitar na fatia 0.11 |
-| `migrate` | aplica as migrações e sai (D010); usado à mão e em testes de restauração | comentado; habilitar na fatia 0.3 |
+| Alvo | Para quê | Processo | HEALTHCHECK |
+|---|---|---|---|
+| `app` | servidor Next.js a partir do `output: "standalone"`, porta 3000 | `node server.js` | `GET /api/health` (seção 6) |
+| `worker` | consumidor da fila pg-boss (`src/worker/index.ts`) | `node dist/worker.mjs` | idade do arquivo de batimento (< 60 s) |
+| `migrate` | aplica as migrações e sai (D010); uso manual: restauração, emergência, CI | `node dist/migrate.mjs` | — |
 
+- **Todas rodam como o usuário `node` (uid 1000).** O código fica com dono root, só leitura para o `node`; só o `.next` do app pertence ao `node`, porque o Next grava cache em runtime.
+- **O `app` é o último estágio:** `docker build .` sem `--target` gera o app.
+- **`dist/migrate.mjs` e `dist/worker.mjs`** são gerados no estágio `build` por `pnpm build:scripts` (`scripts/build-scripts.mjs`, esbuild). Cada um é **autossuficiente** (pg, pg-boss e drizzle-orm embutidos, cerca de 1,3 MB e 1,7 MB), então:
+  - o `worker` e o `migrate` não levam `node_modules` (imagens de cerca de 330 MB, quase tudo a base do Node);
+  - o `migrate.mjs` roda dentro da imagem standalone do app, cujo `node_modules` só tem o que o Next rastreou.
+  - O `server-only` é proibido nesses bundles: o build falha se algum import o puxar.
+- **`app` e `worker` usam o `docker/entrypoint.sh`:** com `MIGRAR_AO_INICIAR=true`, migram antes de subir (seção 5). As duas imagens levam o `migrate.mjs` e as migrações SQL.
+- **Versão:** `--build-arg SUMMER_VERSAO=v0.1.0` (opcional). Sem ela, vale o `version` do `package.json`. Aparece no `/api/health` e no log do worker.
 - **Nenhum segredo entra na imagem.** Todas as variáveis chegam em runtime. No Coolify, deixe todas como **"Not available during build"** (seção 4).
-- O `.dockerignore` tira do contexto `.git`, `node_modules`, `.next`, `.env*`, certificados (`*.pfx`, `*.p12`, `*.pem`), `docs/` e os arquivos de infraestrutura local.
+- O `.dockerignore` tira do contexto `.git`, `node_modules`, `.next`, `dist`, `.env*`, certificados (`*.pfx`, `*.p12`, `*.pem`), `docs/` e os arquivos de infraestrutura local.
 - O cache do pnpm e o `.next/cache` ficam em caches do BuildKit, fora das camadas.
-- No Coolify, o alvo é escolhido no campo **"Docker build stage target"** (General → Build, só aparece com o build pack Dockerfile). Quando os alvos `worker` e `migrate` forem habilitados, o último estágio do arquivo deixa de ser o `app`; por isso **o campo precisa estar preenchido nos dois recursos**.
+- No Coolify, o alvo é escolhido no campo **"Docker build stage target"** (General → Build, só aparece com o build pack Dockerfile). **Preencha nos dois recursos** (`app` e `worker`).
+
+Build local:
+
+```sh
+docker buildx build --target app     -t summer-app     --load .
+docker buildx build --target worker  -t summer-worker  --load .
+docker buildx build --target migrate -t summer-migrate --load .
+```
 
 ## 4. Variáveis de ambiente
 
@@ -77,9 +93,10 @@ A referência completa, comentada, está no [`.env.example`](../.env.example). *
 | Variável | App | Worker | Segredo | Homologação × produção |
 |---|:-:|:-:|:-:|---|
 | `SUMMER_AMBIENTE` | ✓ | ✓ | | `homologacao` / `producao` |
+| `SUMMER_VERSAO` | ✓ | ✓ | | **build arg** opcional da imagem (ex.: a tag `v0.1.0`); sem ela, o `version` do `package.json`. Não precisa cadastrar no Coolify |
 | `PORT` | ✓ | | | `3000` (padrão da imagem) |
 | `DATABASE_URL` | ✓ | ✓ | ✓ | usuário `summer_app` do banco do ambiente (seção 10) |
-| `DATABASE_URL_MIGRACAO` | ✓ | ✓ | ✓ | usuário `summer_owner` do banco do ambiente; só para migrar (seção 5) |
+| `DATABASE_URL_MIGRACAO` | ✓ | ✓ | ✓ | usuário `summer_owner` do banco do ambiente; só para migrar. O entrypoint a remove do ambiente antes de iniciar o Node (seção 5) |
 | `DATABASE_URL_TEST` | | | | só local e CI |
 | `DATABASE_POOL_MAX` | ✓ | ✓ | | ex.: app 10, worker 5 |
 | `BETTER_AUTH_SECRET` | ✓ | ✓ | ✓ | um por ambiente (`openssl rand -base64 32`) |
@@ -91,9 +108,9 @@ A referência completa, comentada, está no [`.env.example`](../.env.example). *
 | `S3_FORCE_PATH_STYLE` | ✓ | ✓ | | `false` no R2 |
 | `CHAVES_CIFRAGEM` | ✓ | ✓ | ✓ | uma por ambiente; **guardar cópia num cofre de senhas** |
 | `SEED_SENHA_*` | | | ✓ | só homologação (para o `pnpm db:seed`) |
-| `PGBOSS_SCHEMA` | ✓ | ✓ | | `pgboss` |
-| `WORKER_CONCORRENCIA` | | ✓ | | ex.: `5` |
-| `MIGRAR_AO_INICIAR` | ✓ | ✓ | | `true` (se a proposta da seção 5 for aprovada) |
+| `PGBOSS_SCHEMA` | ✓ | ✓ | | `pgboss` (só minúsculas, dígitos e `_`); o `migrate` cria o schema |
+| `WORKER_CONCORRENCIA` | | ✓ | | ex.: `5` (de 1 a 50) |
+| `MIGRAR_AO_INICIAR` | ✓ | ✓ | | `true` nos dois (D020) |
 | `MIGRACOES_DIR` | ✓ | ✓ | | opcional: pasta das migrações para o `migrate.mjs` (padrão `src/server/db/migrations`, relativo ao diretório de trabalho) |
 | `POSTGRES_*`, `MINIO_*` | | | | só o `docker-compose.yml` local |
 
@@ -106,66 +123,95 @@ No Coolify:
 
 ## 5. Migrações no deploy
 
-### O que a D010 pede
+### Decisão (D020, opção A): migrar na subida do container, com rolling update
 
-As migrações rodam **antes** de a nova versão do app e do worker atender, e o deploy para se a migração falhar. As migrações são só aditivas, então a versão anterior continua funcionando com o banco novo.
+A D010 pede que as migrações rodem **antes** de a nova versão atender e que o deploy pare se a migração falhar. As migrações são só aditivas, então a versão anterior continua funcionando com o banco novo.
 
-### O que a documentação atual do Coolify mostra (03/11/2026)
+Por que não os comandos do Coolify (documentação de 03/11/2026):
 
-- **Pre-deployment command:** roda **no container atual (o antigo)**, antes de ele ser substituído, e **não roda no primeiro deploy**. Se falhar, o deploy para.
-  - Ou seja: ele executaria o código e as migrações **da versão antiga**. A migração nova nunca seria aplicada por ele. **Não serve para o SUMMER.**
-- **Post-deployment command:** roda no container novo, mas **depois** de o deploy ser marcado como concluído; a falha só vai para o log. Também não serve: a versão nova já estaria no ar com o banco velho.
-- **Rolling update** (build pack Dockerfile): o Coolify sobe o container novo **sem parar o atual** e só remove o antigo quando o novo fica saudável. Se o novo ficar *unhealthy*, **o atual continua no ar**.
-  - Exige um healthcheck (sem ele, "container iniciou" já conta como pronto).
-  - É desligado se o recurso publicar porta no host ou tiver nome de container fixo.
-- **Docker Compose** no Coolify **não tem rolling update**: ele roda `docker compose up` e o Compose recria os serviços.
+- **Pre-deployment command:** roda **no container atual (o antigo)** e **não roda no primeiro deploy**. Executaria as migrações da versão antiga.
+- **Post-deployment command:** roda no container novo, mas **depois** de o deploy ser marcado como concluído; a falha só vai para o log.
+- **Rolling update** (build pack Dockerfile): o Coolify sobe o container novo **sem parar o atual** e só remove o antigo quando o novo fica *healthy*. Se o novo não ficar, **o atual continua no ar**. Exige healthcheck e é desligado se o recurso publicar porta no host ou tiver nome de container fixo.
+- **Docker Compose** no Coolify **não tem rolling update** (opção B, descartada: alguns segundos fora do ar a cada deploy).
 
-### Proposta (aguarda aprovação; depois vira uma decisão em `docs/decisoes.md`)
+### Como funciona
 
-**Opção A, recomendada: migrar na subida do container + rolling update.**
+`docker/entrypoint.sh` (app e worker):
 
-1. As imagens `app` e `worker` levam o script de migração empacotado (`migrate.mjs`, sem drizzle-kit) e um `docker/entrypoint.sh`:
+1. Se `MIGRAR_AO_INICIAR=true`:
+   - exige `DATABASE_URL_MIGRACAO` (sem ela, sai com erro);
+   - roda `node /app/dist/migrate.mjs`, que, com o advisory lock da D023:
+     1. aplica as migrações pendentes do Drizzle (todas numa transação);
+     2. cria ou migra o schema do pg-boss (`PGBOSS_SCHEMA`);
+     3. se o usuário de `DATABASE_URL` for outro (o `summer_app`), concede a ele só o uso da fila (seção 10).
+   - se falhar, **sai com código 1**: o processo não sobe, o container nunca fica *healthy* e a versão anterior continua no ar.
+2. `unset DATABASE_URL_MIGRACAO`: o processo Node não herda a credencial de dono.
+3. `exec` do processo (`node server.js` ou `node dist/worker.mjs`), que vira o PID 1 e recebe o SIGTERM.
 
-   ```sh
-   #!/bin/sh
-   set -e
-   if [ "${MIGRAR_AO_INICIAR:-false}" = "true" ]; then
-     DATABASE_URL="${DATABASE_URL_MIGRACAO:-$DATABASE_URL}" node /app/migrate.mjs
-   fi
-   # o processo do app não herda a credencial de dono do banco
-   unset DATABASE_URL_MIGRACAO
-   exec "$@"
-   ```
+- App e worker sobem juntos e os dois tentam migrar: o advisory lock serializa. Quem chega depois encontra tudo aplicado.
+- Enquanto a migração roda, a versão anterior continua atendendo.
+- O `start-period` dos dois HEALTHCHECKs é de **60 s**. Uma migração mais longa que isso precisa de uma janela própria (rode o alvo `migrate` à mão antes do deploy) ou de um `start-period` maior.
+- A credencial de dono ainda aparece no `docker inspect`, que só o administrador da VPS acessa.
 
-2. O advisory lock do `scripts/migrate.ts` (D010) garante que app e worker, subindo juntos, não migram ao mesmo tempo. Quem chega depois encontra tudo aplicado.
-3. Se a migração falhar, o processo sai antes de o servidor subir. O `HEALTHCHECK` nunca fica *healthy*, então o Coolify **mantém a versão anterior no ar** e o deploy aparece como falho. É o "se falhar, o deploy para" da D010.
-4. Enquanto a migração roda, a versão anterior continua atendendo, o que é seguro porque as migrações são aditivas.
-5. O alvo `migrate` continua existindo para uso manual (`docker run --rm`), para o teste de restauração e para emergências.
+### Uso manual do alvo `migrate`
 
-Custos da opção A:
+```sh
+docker run --rm \
+  -e DATABASE_URL_MIGRACAO='postgres://summer_owner:<senha>@<host>:5432/summer' \
+  -e DATABASE_URL='postgres://summer_app:<senha>@<host>:5432/summer' \
+  summer-migrate
+```
 
-- O container do app conhece a credencial de dono do banco. **Mitigação:** o `unset` acima, para que o processo Node não a receba. Ela ainda aparece no `docker inspect`, que só o administrador da VPS acessa.
-- Uma migração longa precisa caber no `start-period` do `HEALTHCHECK` (40 s hoje), ou esse valor precisa subir.
+`DATABASE_URL` é opcional aqui: serve só para saber a quem conceder o uso da fila. Sai com 0 (inclusive sem pendência) ou 1.
 
-**Opção B: recurso Docker Compose no Coolify**, com os serviços `migrate` (one-shot, `exclude_from_hc: true`), `app` (`depends_on: migrate: condition: service_completed_successfully`) e `worker`.
+### O schema do pg-boss
 
-- É o desenho literal da D010, e só o `migrate` conhece a credencial de dono.
-- Mas não tem rolling update: há alguns segundos de indisponibilidade a cada deploy, inclusive em homologação.
-- A documentação do Coolify não confirma como ele trata o `condition` do `depends_on`. Seria preciso testar no painel.
+O `summer_app` não tem `CREATE` no banco. A documentação do pg-boss 12 (página *Install*) recomenda, para um usuário sem `CREATE`, criar e migrar o schema fora da aplicação (pela CLI ou pelas funções estáticas) e iniciar o pg-boss com `migrate: false`. O `migrate` do SUMMER faz isso com a credencial de dono, pelo mesmo procedimento do `pg-boss migrate` da CLI (`src/server/fila/instalar.ts`):
 
-**Rejeitada: pre-deployment command**, pelos motivos acima.
+- schema ausente: `getConstructionPlans()`;
+- versão antiga: a migração do pg-boss numa transação e, depois, os `CREATE INDEX CONCURRENTLY`, sem depender do BAM (que só roda numa instância com `migrate: true`);
+- a cada atualização do pacote `pg-boss`, revise esse arquivo. O teste de integração `tests/integration/fila.test.ts` cobre a instalação e a migração a partir da versão anterior.
+
+O worker sobe com `migrate: false`, `createSchema: false`, `reindex: false` e filas não particionadas: nenhuma DDL em runtime. Se o schema da fila estiver desatualizado, o `start()` do pg-boss falha e o worker sai com erro.
+
+### Testado em 03/11/2026 (Docker local, banco descartável `summer_docker_teste`, papéis restritos criados só para o teste)
+
+| Cenário | Resultado |
+|---|---|
+| App e worker sobem juntos num banco vazio com `MIGRAR_AO_INICIAR=true` | o app obteve o lock e aplicou as 19 migrações e o pg-boss; o worker esperou e achou tudo aplicado; os dois *healthy* em ~9 s |
+| `/api/health` | 200 `{"status":"ok","banco":"ok","versao":"0.1.0-teste"}`, `Cache-Control: no-store` |
+| `DATABASE_URL_MIGRACAO` no processo Node (`/proc/1/environ`) | ausente nos dois |
+| Alvo `migrate` de novo | "nenhuma migração pendente", saída 0 |
+| Senha de dono errada | o migrate falha, o entrypoint sai com 1, o servidor não sobe |
+| `MIGRAR_AO_INICIAR=true` sem `DATABASE_URL_MIGRACAO` | sai com 1, com mensagem clara |
+| App apontando para porta sem Postgres | `/api/health` 503 `{"status":"erro","banco":"indisponivel",...}`; container `unhealthy` depois do `start-period` |
+| Container saudável perde a rede do banco e depois recupera | 503 sem rede, 200 de novo ao reconectar; o worker suspende o batimento e retoma |
+| Worker como `summer_app` (sem DDL) | processa `sistema.ping`, sem erro de privilégio do pg-boss em vários minutos |
+| `docker stop` do worker | parada graciosa em ~1 s, saída 0, batimento apagado |
+| Usuário das três imagens | `node` |
 
 ## 6. Healthcheck
 
-- A rota `GET /api/health` (**a criar na fatia 0.11**) faz `SELECT 1` com timeout curto e responde:
-  - `200` com `{ "status": "ok" }` se o banco responder;
-  - `503` se não responder.
-- Não expõe versão de dependências, variáveis nem mensagens de erro do banco.
-- Precisa ser dinâmica: com `cacheComponents` ligado, não pode ser pré-renderizada no build.
-- O `HEALTHCHECK` do Dockerfile chama a rota com o `fetch` do próprio Node (a imagem slim não tem curl nem wget): `--interval=15s --timeout=5s --start-period=40s --retries=3`.
+### App: `GET /api/health` (`src/app/api/health/route.ts`)
+
+- Faz `select 1` no Pool do app, com prazo de **2 s** (`src/server/saude.ts`), e responde:
+  - `200` com `{ "status": "ok", "banco": "ok", "versao": "..." }`;
+  - `503` com `{ "status": "erro", "banco": "indisponivel", "versao": "..." }` se o banco recusar, demorar ou der erro.
+- Não expõe mensagem de erro, URL, variáveis nem versões de dependências. `Cache-Control: no-store`.
+- Dinâmica: com `cacheComponents`, chama `connection()` antes do banco, e o `next build` a lista como `ƒ`.
+- Pública: o `proxy.ts` não intercepta `/api/*`.
+- O `HEALTHCHECK` do Dockerfile chama a rota com o `fetch` do próprio Node (a imagem slim não tem curl nem wget): `--interval=15s --timeout=5s --start-period=60s --retries=3`.
+
+### Worker: arquivo de batimento
+
+- A cada 15 s, se o `select 1` do worker responde, ele regrava `/tmp/summer-worker-batimento` com a hora.
+- O `HEALTHCHECK` exige um batimento com menos de 60 s. Banco fora por mais de ~1 minuto: o worker fica *unhealthy* (o pg-boss tenta de novo sozinho quando o banco volta).
+- No SIGTERM, o worker apaga o arquivo, para de buscar jobs, espera os em andamento por até **8 s** (cabe nos 10 s padrão do `docker stop`) e sai com 0.
+
+### No Coolify
+
 - **O Coolify usa o `HEALTHCHECK` do Dockerfile** no lugar do configurado no painel. Não configure outro no painel.
-- **Atenção:** enquanto `/api/health` não existir, a imagem fica *unhealthy* (a rota responde 404). O primeiro deploy só deve acontecer depois da fatia 0.11.
-- O CI já sobe a imagem e espera o `healthy` (job `imagem`), e esse passo passa a rodar sozinho quando a rota existir.
+- O rolling update depende dele (seção 5).
 
 ## 7. Como publicar
 
@@ -275,6 +321,7 @@ Depois:
 - compare a lista de migrações aplicadas com `src/server/db/migrations/`;
 - conte as linhas das tabelas principais (empresas, produtos, vendas, `movimentacoes_estoque`);
 - regrave os `GRANT`s da seção 10, porque o `--no-owner` não traz privilégios.
+- rode o alvo `migrate` (seção 5) com `DATABASE_URL` do `summer_app`: ele refaz os privilégios do schema do pg-boss.
 
 ### Teste de restauração (obrigatório uma vez, seção 6 da especificação)
 
@@ -326,7 +373,17 @@ ALTER DEFAULT PRIVILEGES FOR ROLE summer_owner IN SCHEMA public
     SELECT has_table_privilege('summer_app', 'movimentacoes_estoque', 'TRUNCATE'),
            has_table_privilege('summer_app', 'auditoria', 'TRUNCATE');
     ```
-- **pg-boss** cria o próprio schema (`PGBOSS_SCHEMA`) ao iniciar. A fatia 0.11 decide entre duas opções: o `summer_owner` cria o schema durante a migração e dá os privilégios ao `summer_app`, ou o worker recebe `CREATE` só nesse schema.
+- A lista acima confere com os gatilhos de append-only do schema atual (conferido em 03/11/2026, consultando `pg_trigger` num banco migrado): `movimentacoes_estoque`, `auditoria`, `os_historico_status` e `comissao_ajustes`. Os dois `REVOKE` rodaram sem erro e o resultado foi o esperado (`comissao_ajustes` mantém só o `UPDATE`).
+- **pg-boss:** o `summer_owner` cria e migra o schema `PGBOSS_SCHEMA` durante o `migrate` (seção 5) e concede ao `summer_app`, automaticamente, só o uso da fila: `USAGE` no schema, `SELECT/INSERT/UPDATE/DELETE` nas tabelas, sequências e `EXECUTE` nas funções, também para o que for criado depois nesse schema. Sem `CREATE` e sem `TRUNCATE`. Não há SQL manual para isso.
+  - Verificação (precisa devolver `f`, `f` e `t`):
+
+    ```sql
+    SELECT has_schema_privilege('summer_app', 'pgboss', 'CREATE'),
+           has_table_privilege('summer_app', 'pgboss.job', 'TRUNCATE'),
+           has_table_privilege('summer_app', 'pgboss.job', 'INSERT,UPDATE,DELETE');
+    ```
+
+  - O pg-boss reconstrói índices inchados com `REINDEX` na manutenção, o que exige ser dono. Por isso o worker roda com `reindex: false`: o inchaço só gera aviso no log (`index_bloat`). Ver a pendência na seção 13.
 - O Postgres **não** fica exposto na internet ("Make it publicly available" desligado). App e worker usam a URL interna que o Coolify mostra no recurso.
 
 ## 11. Nada preso a provedor
@@ -380,21 +437,27 @@ ALTER DEFAULT PRIVILEGES FOR ROLE summer_owner IN SCHEMA public
    - imagem `postgres:17.11-bookworm`;
    - sem acesso público.
    - Depois de criado, rode o SQL da seção 10.
-4. **App:**
-   - New Resource → Application → repositório;
+4. **App** (New Resource → Application → este repositório):
    - branch `develop` (homologação) ou `main` (produção);
    - build pack **Dockerfile**: Base Directory `/`, Dockerfile Location `/Dockerfile`, **"Docker build stage target" = `app`**;
    - Ports Exposes `3000`;
    - domínio HTTPS do ambiente;
    - **sem** port mapping para o host e **sem** nome de container fixo, porque os dois desligam o rolling update;
    - Healthcheck: deixe o do Dockerfile (não configure no painel);
-   - variáveis da seção 4, todas "Not available during build";
+   - variáveis da seção 4, todas "Not available during build", **inclusive** `DATABASE_URL_MIGRACAO` e `MIGRAR_AO_INICIAR=true`;
    - Auto deploy: **ligado em homologação, desligado em produção**.
-5. **Worker:** igual ao app, com **"Docker build stage target" = `worker`** e **sem domínio**. Habilite só depois da fatia 0.11.
+5. **Worker** (outro recurso Application, **mesmo repositório e mesma branch**):
+   - build pack **Dockerfile**, **"Docker build stage target" = `worker`**;
+   - **sem domínio** e sem port mapping. O worker não escuta nenhuma porta: deixe o "Ports Exposes" com o valor que o Coolify sugerir; o proxy nunca terá para onde rotear. *Conferir no painel se o campo aceita ficar vazio.*
+   - Healthcheck: o do Dockerfile (arquivo de batimento);
+   - variáveis: as mesmas do app (use as variáveis compartilhadas do ambiente), mais `WORKER_CONCORRENCIA`; `MIGRAR_AO_INICIAR=true` e `DATABASE_URL_MIGRACAO` também, porque o worker pode subir antes do app;
+   - Auto deploy: igual ao app (ligado em homologação, desligado em produção).
+   - **Parada:** o Coolify não aplica `--stop-timeout` nas "Custom Docker Options" (a lista permitida não inclui essa opção). O worker já para em até 8 s, dentro dos 10 s padrão do Docker.
 6. **Backups:** seção 8.
 7. **Rollback:** em Advanced, mantenha "Images to keep" ≥ 3, para ter versões anteriores disponíveis.
 8. **Prova de vida:**
-   - deploy;
+   - deploy do worker e do app;
+   - no log de cada um: `[migrate] ...` e depois `[worker] pronto` ou `Ready`;
    - `/api/health` com 200;
    - login;
    - em homologação, `pnpm db:seed` pelo terminal do container (quando o seed existir).
@@ -406,10 +469,13 @@ ALTER DEFAULT PRIVILEGES FOR ROLE summer_owner IN SCHEMA public
 - [ ] **Conta Cloudflare / R2:** buckets, tokens e Account ID.
 - [ ] **Domínios e DNS** de homologação e produção.
 - [ ] **Horário de funcionamento da loja**, para definir a janela de deploy de produção.
-- [ ] **Aprovar a forma de migrar no deploy** (seção 5, opção A ou B) e registrar em `docs/decisoes.md` (complementa a D010).
-- [x] Fatia 0.3: `scripts/migrate.ts` lendo `DATABASE_URL_MIGRACAO` (com fallback para `DATABASE_URL`), com advisory lock (D023). Empacota em JS puro com esbuild (`--bundle --platform=node --format=esm --packages=external`), conferido.
-- [ ] Alvo `migrate` do Dockerfile, `docker/entrypoint.sh` e o passo de build que gera `dist/migrate.mjs`.
-- [ ] Fatia 0.11: `/api/health`, alvo `worker` (com tratamento de `SIGTERM` e arquivo de batimento para o healthcheck) e schema do pg-boss com o usuário restrito (seção 10).
+- [x] Forma de migrar no deploy: opção A (D020), seção 5.
+- [x] Fatia 0.3: `scripts/migrate.ts` lendo `DATABASE_URL_MIGRACAO` (com fallback para `DATABASE_URL`), com advisory lock (D023).
+- [x] Alvos `worker` e `migrate` do Dockerfile, `docker/entrypoint.sh` e `pnpm build:scripts` (`dist/migrate.mjs` e `dist/worker.mjs`, autossuficientes).
+- [x] Fatia 0.11: `/api/health`, worker com SIGTERM e arquivo de batimento, schema do pg-boss criado pelo `migrate` com o dono e uso concedido ao `summer_app` (seções 5, 6 e 10). Testado com Docker local (seção 5).
+- [ ] **Primeiro deploy no Coolify:** conferir os nomes dos campos, o "Ports Exposes" do worker e se o rolling update mantém a versão anterior quando a migração falha (simular com uma migração quebrada em homologação).
+- [ ] **REINDEX da fila:** o worker roda com `reindex: false`. Quando o log mostrar o aviso `index_bloat`, rodar como `summer_owner` os comandos de `getReindexCommands()` (ou `pg-boss reindex` pela CLI). Avaliar automatizar isso no `migrate`.
+- [ ] **Versão na imagem:** decidir se o Coolify passa `SUMMER_VERSAO` como build arg (ex.: a tag) ou se fica o `version` do `package.json`.
 - [ ] **Teste de restauração** feito uma vez, com a data registrada na seção 9.
 - [ ] **Cofre de senhas** para `CHAVES_CIFRAGEM`, `BETTER_AUTH_SECRET` e senhas do banco de produção. Perder a `CHAVES_CIFRAGEM` = perder os tokens do Focus e do Mercado Livre.
 - [ ] **XMLs fiscais por 5 anos (regra 4.16):** avaliar retenção/bloqueio de objetos no bucket de arquivos de produção (o R2 tem bucket locks; conferir) e uma cópia periódica para outro destino.
@@ -432,4 +498,10 @@ Consultadas em 03/11/2026:
 - Coolify, rollbacks. https://coolify.io/docs/applications/deployments/rollbacks
 - Cloudflare R2, API S3 (endpoint e região `auto`). https://developers.cloudflare.com/r2/api/s3/api/
 - Cloudflare R2, ciclo de vida de objetos. https://developers.cloudflare.com/r2/buckets/object-lifecycles/
+- Coolify, Custom Docker Options (lista de opções permitidas; `--stop-timeout` não está nela). https://coolify.io/docs/applications/builds/custom-docker-options
+- pg-boss 12, instalação com usuário sem `CREATE` (CLI ou funções estáticas). https://pgboss.io/install
+- pg-boss 12, CLI (`migrate`, `plans`, variáveis `PGBOSS_*`). https://pgboss.io/cli
+- pg-boss 12, construtor (`migrate`, `createSchema`, `schema`, `db`). https://pgboss.io/api/constructor
+- pg-boss 12, `start()`/`stop()` (`graceful`, `timeout` padrão de 30 s) e o BAM só em instâncias com `migrate: true`. https://pgboss.io/api/ops
+- Next.js 16.4, route handlers com Cache Components (`connection()`): `node_modules/next/dist/docs/01-app/01-getting-started/15-route-handlers.md`
 - Next.js 16.4, `output: "standalone"`: `node_modules/next/dist/docs/01-app/03-api-reference/05-config/01-next-config-js/output.md`
