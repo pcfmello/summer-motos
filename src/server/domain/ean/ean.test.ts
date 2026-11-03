@@ -128,9 +128,33 @@ describe("validarGtinFiscal", () => {
     expect(validarGtinFiscal(entrada)).toEqual({ ok: true, valor: entrada });
   });
 
-  // pergunta em aberto: ainda NÃO rejeitamos GTIN-12 com 2 nem GTIN-8 com 0 ou 2
-  it.each([["200000000004"], ["20000004"]])("por ora aceita %j (GTIN-12/8 com 2)", (entrada) => {
-    expect(validarGtinFiscal(entrada).ok).toBe(true);
+  // circulação restrita da GS1 (General Specifications 26.0, seção 2.1.11): nunca vale na nota
+  it.each([
+    ["200000000004", "GTIN-12 (UPC-A) com 2: GS1 Prefix 02 (2.1.11.4)"],
+    ["0200000000004", "o mesmo UPC-A com 2 escrito em 13 dígitos"],
+    ["400000000008", "GTIN-12 (UPC-A) com 4: RCN-12 U.P.C. Prefix 4 (2.1.11.2)"],
+    ["0400000000008", "GTIN-13 com 04: RCN-13 GS1 Prefix 04 (2.1.11.2)"],
+    ["20000004", "GTIN-8 com 2: RCN-8 (2.1.11.1)"],
+    ["01234565", "GTIN-8 com 0: RCN-8 (2.1.11.1)"],
+    ["00000001234565", "GTIN-8 com 0 na forma de 14 dígitos"],
+    ["12000000000012", "GTIN-14 com indicador montado sobre um RCN-13 com 2"],
+    ["10200000000001", "GTIN-14 com indicador montado sobre um UPC-A com 2"],
+    ["10400000000005", "GTIN-14 com indicador montado sobre um RCN-13 com 04"],
+    ["10000020000001", "GTIN-14 com indicador montado sobre um RCN-8 com 2"],
+  ])("rejeita %j como uso_interno (%s)", (entrada) => {
+    expect(validarGtinFiscal(entrada)).toMatchObject({ ok: false, erro: "uso_interno" });
+  });
+
+  it.each([
+    ["96385074", "GTIN-8 com 9"],
+    ["12345670", "GTIN-8 com 1"],
+    ["036000291452", "UPC-A com 0"],
+    ["0036000291452", "UPC-A com 0 em 13 dígitos"],
+    ["500000000005", "UPC-A com 5 (cupom nos EUA; fora do escopo, ver relatório)"],
+    ["9788535902778", "ISBN (GTIN-13 com 978)"],
+    ["10000096385071", "GTIN-14 com indicador montado sobre um GTIN-8 comum"],
+  ])("aceita %j (%s)", (entrada) => {
+    expect(validarGtinFiscal(entrada)).toEqual({ ok: true, valor: entrada });
   });
 
   it("normalizarGtin tira espaços", () => {

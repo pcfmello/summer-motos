@@ -96,8 +96,9 @@ O banco só muda por migração versionada. É o único caminho, em todos os amb
    - só `server/domain/estoque` + `withTransaction` altera saldo;
    - erro se corrige com estorno;
    - toda mudança no disponível grava na `outbox`.
-3. **Documentos (4.3):**
+3. **Documentos (4.3 + D018):**
    - orçamento não mexe no estoque;
+   - devolução de cliente: a loja devolve o dinheiro (sem crédito), e a peça volta ao estoque ou ao depósito "Garantia", se tiver defeito;
    - venda baixa ao finalizar;
    - OS reserva ao lançar a peça e baixa na entrega;
    - pedido de canal reserva quando pago e baixa no faturamento.
@@ -123,10 +124,11 @@ O banco só muda por migração versionada. É o único caminho, em todos os amb
     - CNPJ numérico e alfanumérico, guardado com 14 caracteres;
     - placa antiga e Mercosul;
     - NCM com 8 dígitos, CEST com 7 e origem de 0 a 8.
-13. **Comissão (4.13):**
-    - valor fixo por serviço;
-    - congelada quando a OS está entregue e paga;
-    - o acerto vai para `acertos_mecanico`.
+13. **Comissões (4.13 + D018):**
+    - mecânico: valor fixo por serviço; vendedor: % sobre as peças, escolhido na OS e na venda de balcão;
+    - as duas congelam no fechamento (OS `entregue`, venda `finalizada`), independentemente do pagamento;
+    - a OS fechada **não pode ser reaberta** (correção por devolução);
+    - os acertos registram o pagamento.
 14. **Canais (4.14):**
     - publicado = max(0, disponível − segurança);
     - outbox e worker com retentativa e agrupamento;

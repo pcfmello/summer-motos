@@ -180,3 +180,53 @@ Ficam em `src/server/domain/*`: funções puras, com testes e só com `Decimal`.
   - as server functions de leitura são a exceção à regra "Server Actions só para escrita" e seguem as mesmas regras de contexto e permissão das queries;
   - sem virtualização por enquanto: em listas muito longas as linhas se acumulam na tela. Ela pode ser acrescentada depois sem mudar a API;
   - exportações (CSV) continuam trazendo todos os itens do filtro, independentemente do que foi rolado.
+
+## D018 — Respostas do diretor às perguntas do modelo (2026-11-03, decisão do usuário)
+
+Estas respostas substituem trechos da especificação onde houver conflito.
+
+- **Devolução de cliente (P1):** não existe crédito na loja. A loja devolve o pagamento, e a peça volta ao estoque. A peça com defeito vai para o depósito oculto "Garantia" (P7).
+- **Comissões (P2):**
+  - a OS fechada (`entregue`) gera a comissão do mecânico **e do vendedor**, independentemente do pagamento;
+  - **regra nova:** o vendedor ganha um percentual sobre o valor das peças, configurado por vendedor;
+  - o vendedor é escolhido na OS e na venda de balcão; a regra vale para as duas;
+  - a base exata e o tratamento de cancelamento ou devolução depois do acerto estão em `perguntas-abertas.md`.
+- **OS fechada não pode ser reaberta (P3):** substitui o "Reabrir uma OS entregue (só o dono) gera estorno" da regra 4.3. Correção depois do fechamento é feita por devolução.
+- **Canais × balcão (P4):** o estoque é único e interligado (já previsto). Uma corrida rara pela última unidade vai para a lista de "pedidos com problema", e o estoque de segurança do canal reduz o risco.
+- **Balanço (P5, P6):**
+  - a peça não contada mantém a quantidade; o sistema só a lista antes de aplicar;
+  - um balanço aberto por vez, com várias pessoas contando.
+- **Comprador do e-commerce (P8):** não entra no cadastro de clientes da loja. Os dados completos do destinatário (para a NF-e) ficam no pedido.
+- **OS visíveis ao mecânico (P9):** as que ele é responsável **ou** em que executou algum serviço.
+- **CPF/CNPJ (P11):** único por empresa; o TeraSoft não tem duplicados.
+- **Unidade `PCT` (P13):** acrescentada às unidades. A compra em PCT com fator 10 entra como 10 unidades de estoque (regra 4.6).
+- **Propostas aceitas (P7, P10, P12):**
+  - depósito "Garantia";
+  - orçamento com serviço só vira OS;
+  - abrir um kit para vender uma peça = ajuste manual com motivo.
+
+## D019 — Regras de cálculo sem resposta seguem a proposta (2026-11-03)
+
+As perguntas D1 a D5 de `perguntas-abertas.md` não foram respondidas e seguem a proposta:
+
+- **D1:** a quantidade publicada é arredondada para baixo até o inteiro.
+- **D2:** o GTIN fiscal recusa todos os códigos de circulação restrita da GS1 (General Specifications 26.0, seção 2.1.11):
+  - prefixos 02, 04 e 20–29 (inclui UPC-A começando com 2 ou 4);
+  - RCN-8 começando com 0 ou 2;
+  - GTIN-14 montado sobre um desses.
+  - O CHECK do banco continua barrando só o EAN-13 com 2, como última barreira; o domínio barra o resto.
+- **D3:** o arredondamento da empresa vale para o preço calculado por tabela, nunca para o preço fixo.
+- **D4:** o custo da entrada manual é por unidade de compra.
+- **D5:** o saldo inicial exige custo; peça sem custo fica marcada e fora da margem.
+
+## D020 — Migrações aplicadas na subida da versão nova (2026-11-03, complementa a D010)
+
+- **Contexto:** no Coolify, o pre-deployment command roda no container **antigo** e não roda no primeiro deploy. Por isso não serve para aplicar as migrações da versão nova (`docs/deploy.md`, seção 5). A pergunta T1 não foi respondida e segue a recomendação.
+- **Decisão (opção A):**
+  - as imagens do app e do worker rodam `migrate` ao subir (`MIGRAR_AO_INICIAR=true`), com o advisory lock da D010, antes de iniciar o processo;
+  - com rolling update, se a migração falhar o container novo nunca fica saudável e a versão anterior continua no ar;
+  - a credencial de dono do banco (`DATABASE_URL_MIGRACAO`) é removida do ambiente (`unset`) antes do `exec` do processo Node.
+- **Consequência:**
+  - não há tempo fora do ar no deploy;
+  - as migrações continuam aditivas, porque a versão anterior roda sobre o banco novo durante a troca;
+  - o alvo `migrate` do Dockerfile continua existindo para uso manual (restauração, CI).

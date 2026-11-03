@@ -9,7 +9,7 @@ Status possíveis: ⬜ não iniciada · 🟨 em andamento · 🟦 em homologaç�
 | 1 | Cadastros e consulta | ⬜ |
 | 2 | Orçamentos | ⬜ |
 | 3 | A virada: estoque, vendas, OS e notas | ⬜ |
-| 4 | Mão de obra dos mecânicos | ⬜ |
+| 4 | Comissões: mecânicos e vendedores | ⬜ |
 | 5 | Recebimento de notas e pacote do contador | ⬜ |
 | 6 | Mercado Livre | ⬜ |
 | 7 | E-commerce | ⬜ |
@@ -26,7 +26,7 @@ Regra: uma entrega por vez; a próxima só começa quando o usuário pedir.
 - [x] `docs/plano.md` (este arquivo)
 - [x] `docs/decisoes.md`
 - [x] `docs/modelo-dados.md`, com todas as tabelas da seção 5 e o ER em Mermaid (revisado com a D012)
-- [ ] **Aprovação do modelo de dados pelo usuário** (nenhuma migração antes disso). Perguntas P1–P16 em aberto (seção 14 do modelo).
+- [ ] **Aprovação do modelo de dados pelo usuário** (nenhuma migração antes disso). Respostas do diretor aplicadas (D018); faltam as perguntas novas e as do contador (`docs/perguntas-abertas.md`).
 
 ---
 
@@ -158,9 +158,10 @@ Pré-requisito: Docker Desktop com integração WSL ativada.
 - [ ] `docs/virada.md`: checklist do dia da virada e plano de volta.
 - [ ] Fechamento da entrega.
 
-## Entrega 4 — Mão de obra dos mecânicos
+## Entrega 4 — Comissões: mecânicos e vendedores
 
 - [ ] Tela "Mão de obra" (dono): filtros de período, cards por mecânico, serviços e histórico.
+- [ ] Comissão do vendedor (D018): % sobre as peças, por vendedor, em OS e vendas de balcão; acertos e "Meus ganhos" também para vendedores.
 - [ ] Botão "Pagar": acerto, `acerto_id` nos itens e auditoria.
 - [ ] Tela "Meus ganhos" (mecânico).
 - [ ] Fechamento da entrega.

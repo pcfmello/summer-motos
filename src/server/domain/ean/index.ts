@@ -1,7 +1,7 @@
 /**
  * Códigos de barras e GTIN (regra 4.7).
  * - EAN-13 interno: `200` + sequencial de 9 dígitos + DV GS1. Nunca é copiado para o GTIN fiscal.
- * - GTIN fiscal: GTIN-8/12/13/14 com DV válido, sem prefixo de uso interno. Vazio = `SEM GTIN` na nota.
+ * - GTIN fiscal: GTIN-8/12/13/14 com DV válido, fora das faixas de circulação restrita da GS1. Vazio = `SEM GTIN`.
  */
 import { paraDecimal } from "../decimal";
 
@@ -54,14 +54,28 @@ export function ehEan13Valido(codigo: string): boolean {
   return codigo.length === 13 && validarDigitoGs1(codigo);
 }
 
+/**
+ * Número de circulação restrita (RCN) da GS1, que não identifica o produto fora da loja ou da região.
+ * Fonte: GS1 General Specifications, Release 26.0 (ratificada em jan/2026), seção 2.1.11
+ * (https://ref.gs1.org/standards/genspecs/, consultada em 03/11/2026):
+ * - 2.1.11.1: RCN-8, GTIN-8 começando com 0 ou 2;
+ * - 2.1.11.2: RCN-13 com GS1 Prefix 04 (= RCN-12 com U.P.C. Prefix 4);
+ * - 2.1.11.4: GS1 Prefixes 02 (= UPC-A começando com 2) e 20 a 29 (EAN-13 começando com 2, como o EAN interno).
+ * A conta é feita sobre a forma canônica de 14 dígitos sem o indicador, então também pega o GTIN-14
+ * (com indicador 0 a 9) montado sobre um RCN. Ficam de fora a 2.1.11.3 (LAC e RZSC, subfaixas do
+ * U.P.C. Prefix 0) e os cupons (05, 99, 981 a 984): ver o relatório da fatia 0.5.
+ */
+function ehCirculacaoRestrita(gtin: string): boolean {
+  const corpo = gtin.padStart(14, "0").slice(1); // sem o indicador do GTIN-14
+  if (corpo.startsWith("00000")) return corpo[5] === "0" || corpo[5] === "2"; // faixa do GTIN-8
+  return corpo.startsWith("2") || corpo.startsWith("02") || corpo.startsWith("04");
+}
+
 export type ErroGtinFiscal = "formato" | "zerado" | "digito_verificador" | "uso_interno";
 
 /**
  * Valida o `gtin_fiscal`. Vazio (ou nulo) é válido e vira `valor: null` (`SEM GTIN` na nota).
- * Rejeita o EAN-13 começando com 2 (uso interno/restrito), como pede a regra 4.7, em qualquer forma
- * (a verificação é feita sobre a forma canônica de 14 dígitos).
- * Pergunta em aberto: a GS1 também restringe GTIN-12 começando com 2 e GTIN-8 começando com 0 ou 2;
- * por ora seguimos a especificação e o CHECK do banco, que só barram o EAN-13 com 2.
+ * Rejeita como `uso_interno` os números de circulação restrita (RCN) da GS1, em qualquer forma.
  */
 export function validarGtinFiscal(
   entrada: string | null | undefined,
@@ -75,12 +89,12 @@ export function validarGtinFiscal(
   if (!validarDigitoGs1(gtin)) {
     return { ok: false, erro: "digito_verificador", mensagem: "GTIN inválido: dígito verificador não confere." };
   }
-  // forma canônica de 14 dígitos: "02…" é um EAN-13 começando com 2, inclusive disfarçado de GTIN-14 ("0" + EAN)
-  if (gtin.padStart(14, "0").startsWith("02")) {
+  if (ehCirculacaoRestrita(gtin)) {
     return {
       ok: false,
       erro: "uso_interno",
-      mensagem: "GTIN começando com 2 é de uso interno e não vale na nota fiscal. Deixe vazio para SEM GTIN.",
+      mensagem:
+        "GTIN de circulação restrita (uso interno da loja ou da região) não vale na nota fiscal. Deixe vazio para SEM GTIN.",
     };
   }
   return { ok: true, valor: gtin };
