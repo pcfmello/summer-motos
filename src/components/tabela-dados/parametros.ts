@@ -1,43 +1,36 @@
 /**
- * Lê busca e paginação dos `searchParams` da página (sempre no servidor).
+ * Lê busca e ordenação dos `searchParams` da página (sempre no servidor).
  * Valores inválidos voltam para o padrão em vez de quebrar a tela.
+ * A paginação não vai na URL: as listas usam rolagem infinita com cursor keyset
+ * (ver `src/lib/cursor.ts`).
  */
 export type SearchParams = Record<string, string | string[] | undefined>;
 
-export type ParametrosTabela = {
+export type ParametrosLista<O extends string> = {
   busca: string;
-  pagina: number;
-  tamanhoPagina: number;
-  /** Para a query: quantas linhas pular. */
-  deslocamento: number;
+  ordem: O;
 };
-
-type Opcoes = {
-  tamanhoPadrao?: number;
-  tamanhosPermitidos?: readonly number[];
-};
-
-export const TAMANHOS_PAGINA = [10, 20, 50] as const;
 
 function primeiro(valor: string | string[] | undefined): string | undefined {
   return Array.isArray(valor) ? valor[0] : valor;
 }
 
-export function lerParametrosTabela(
+export function lerParametrosLista<O extends string>(
   searchParams: SearchParams,
-  { tamanhoPadrao = 20, tamanhosPermitidos = TAMANHOS_PAGINA }: Opcoes = {},
-): ParametrosTabela {
+  { ordens, ordemPadrao }: { ordens: readonly O[]; ordemPadrao: O },
+): ParametrosLista<O> {
   const busca = (primeiro(searchParams.busca) ?? "").trim().slice(0, 100);
+  const ordemTexto = primeiro(searchParams.ordem);
+  const ordem = ordens.find((o) => o === ordemTexto) ?? ordemPadrao;
+  return { busca, ordem };
+}
 
-  const paginaTexto = primeiro(searchParams.pagina) ?? "";
-  const paginaNumero = /^\d{1,6}$/.test(paginaTexto) ? Number(paginaTexto) : 1;
-  const pagina = Math.max(1, paginaNumero);
-
-  const tamanhoTexto = primeiro(searchParams.tamanho) ?? "";
-  const tamanhoNumero = /^\d{1,3}$/.test(tamanhoTexto) ? Number(tamanhoTexto) : tamanhoPadrao;
-  const tamanhoPagina = tamanhosPermitidos.includes(tamanhoNumero) ? tamanhoNumero : tamanhoPadrao;
-
-  return { busca, pagina, tamanhoPagina, deslocamento: (pagina - 1) * tamanhoPagina };
+/** Chave para o `key` da lista: muda quando busca ou filtros mudam, e a lista recomeça. */
+export function chaveDaLista(parametros: Record<string, string>): string {
+  return Object.entries(parametros)
+    .sort(([a], [b]) => (a < b ? -1 : 1))
+    .map(([k, v]) => `${k}=${v}`)
+    .join("&");
 }
 
 /** Monta "?a=1&b=2" a partir dos parâmetros atuais, trocando/removendo alguns. */

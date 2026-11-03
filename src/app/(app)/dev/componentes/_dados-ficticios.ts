@@ -1,7 +1,15 @@
 /**
- * 50 produtos fictícios para a vitrine de componentes. Simula a query do
- * servidor (busca + paginação); nada disso vai para produção.
+ * 500 produtos fictícios para a vitrine de componentes. Simula a query do
+ * servidor (busca, ordenação e cursor keyset); nada disso vai para produção.
  */
+import Decimal from "decimal.js";
+
+import {
+  codificarCursor,
+  recorteKeyset,
+  type CursorKeyset,
+  type ValorChave,
+} from "@/lib/cursor";
 export type ProdutoFicticio = {
   id: string;
   codigo: string;
@@ -42,46 +50,124 @@ const BASE: Array<[string, string, string, string]> = [
   ["Óleo de suspensão 20W 500 ml", "Motul", "ML", "500"],
 ];
 
-export const PRODUTOS_FICTICIOS: ProdutoFicticio[] = Array.from({ length: 50 }, (_, i) => {
+const VARIANTES = [
+  "",
+  " (linha econômica)",
+  " (reforçada)",
+  " (original)",
+  " (paralela)",
+  " (importada)",
+  " (kit com 2)",
+  " (premium)",
+  " (cromada)",
+  " (preta)",
+  " (competição)",
+  " (estrada)",
+  " (off-road)",
+  " (urbana)",
+  " (série especial)",
+  " (reposição)",
+  " (alto desempenho)",
+  " (silenciosa)",
+  " (longa duração)",
+  " (econômica plus)",
+];
+const FATORES = ["1", "0.8", "1.15", "1.3", "0.9"];
+const QTD_LITROS = ["0", "1.5", "3", "4.5", "6", "7.5", "9"];
+
+export const PRODUTOS_FICTICIOS: ProdutoFicticio[] = Array.from({ length: 500 }, (_, i) => {
   const [descricao, marca, unidade, preco] = BASE[i % BASE.length]!;
-  const variante = i >= BASE.length ? " (linha econômica)" : "";
-  const quantidade = unidade === "LT" ? ["0", "1.5", "3", "4.5", "6", "7.5", "9"][i % 7]! : String((i * 7) % 23);
+  const variante = VARIANTES[Math.floor(i / BASE.length) % VARIANTES.length]!;
+  const quantidade = unidade === "LT" ? QTD_LITROS[i % QTD_LITROS.length]! : String((i * 7) % 23);
   return {
-    id: `p${i + 1}`,
+    id: `p${String(i + 1).padStart(4, "0")}`,
     codigo: String(i + 1).padStart(6, "0"),
     descricao: descricao + variante,
     marca,
     referencia: `${marca.slice(0, 3).toUpperCase()}-${1000 + i * 37}`,
     unidade,
-    preco: i >= BASE.length ? (Number(preco) * 0.8).toFixed(2) : preco,
+    preco: new Decimal(preco).times(FATORES[i % FATORES.length]!).toFixed(2),
     quantidade,
     minimo: "5",
   };
 });
 
+export const ORDENS = ["descricao", "codigo", "preco"] as const;
+export type Ordem = (typeof ORDENS)[number];
+
+export const OPCOES_ORDEM: { valor: Ordem; rotulo: string }[] = [
+  { valor: "descricao", rotulo: "Descrição (A–Z)" },
+  { valor: "codigo", rotulo: "Código" },
+  { valor: "preco", rotulo: "Maior preço" },
+];
+
+export const TAMANHO_LEVA = 50;
+
+const colador = new Intl.Collator("pt-BR", { sensitivity: "base", numeric: true });
+
+/** Como cada ordenação compara (no banco: ORDER BY coluna, id). */
+const CONFIG_ORDEM: Record<
+  Ordem,
+  {
+    chave: (p: ProdutoFicticio) => { v: ValorChave; id: string };
+    comparar: (a: ValorChave, b: ValorChave) => number;
+    direcao: "asc" | "desc";
+  }
+> = {
+  descricao: {
+    chave: (p) => ({ v: p.descricao, id: p.id }),
+    comparar: (a, b) => colador.compare(String(a), String(b)),
+    direcao: "asc",
+  },
+  codigo: {
+    chave: (p) => ({ v: p.codigo, id: p.id }),
+    comparar: (a, b) => (String(a) < String(b) ? -1 : String(a) > String(b) ? 1 : 0),
+    direcao: "asc",
+  },
+  preco: {
+    chave: (p) => ({ v: p.preco, id: p.id }),
+    comparar: (a, b) => new Decimal(String(a)).comparedTo(String(b)),
+    direcao: "desc",
+  },
+};
+
 function normalizar(texto: string) {
   return texto.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase();
 }
 
-export async function consultarProdutosFicticios({
-  busca,
-  deslocamento,
-  tamanhoPagina,
-}: {
-  busca: string;
-  deslocamento: number;
-  tamanhoPagina: number;
-}) {
-  // Simula a latência do banco para dar para ver o estado "carregando"
-  await new Promise((resolve) => setTimeout(resolve, 250));
+export function filtrarProdutosFicticios(itens: readonly ProdutoFicticio[], busca: string) {
   const termo = normalizar(busca);
-  const filtrados = termo
-    ? PRODUTOS_FICTICIOS.filter((p) =>
-        [p.codigo, p.descricao, p.marca, p.referencia].some((campo) => normalizar(campo).includes(termo)),
-      )
-    : PRODUTOS_FICTICIOS;
+  if (!termo) return [...itens];
+  return itens.filter((p) =>
+    [p.codigo, p.descricao, p.marca, p.referencia].some((campo) => normalizar(campo).includes(termo)),
+  );
+}
+
+/** Uma leva keyset sobre `itens` (puro; usado pela página, pela server function e pelos testes). */
+export function levaDeProdutos(
+  itens: readonly ProdutoFicticio[],
+  { busca, ordem, cursor, limite = TAMANHO_LEVA }: { busca: string; ordem: Ordem; cursor: CursorKeyset | null; limite?: number },
+) {
+  const filtrados = filtrarProdutosFicticios(itens, busca);
+  const { itens: linhas, proximoCursor } = recorteKeyset(filtrados, {
+    ordenacao: ordem,
+    ...CONFIG_ORDEM[ordem],
+    cursor,
+    limite,
+  });
   return {
-    linhas: filtrados.slice(deslocamento, deslocamento + tamanhoPagina),
+    linhas,
     total: filtrados.length,
+    proximoCursor: proximoCursor ? codificarCursor(proximoCursor) : null,
   };
+}
+
+/** Simula a query do servidor, com latência para dar para ver o "carregando". */
+export async function consultarProdutosFicticios(filtros: {
+  busca: string;
+  ordem: Ordem;
+  cursor: CursorKeyset | null;
+}) {
+  await new Promise((resolve) => setTimeout(resolve, 400));
+  return levaDeProdutos(PRODUTOS_FICTICIOS, filtros);
 }

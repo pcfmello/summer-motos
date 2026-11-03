@@ -1,37 +1,42 @@
 import { describe, expect, it } from "vitest";
 
-import { hrefComParametros, lerParametrosTabela } from "./parametros";
+import { chaveDaLista, hrefComParametros, lerParametrosLista } from "./parametros";
 
-describe("lerParametrosTabela", () => {
+const ordens = ["descricao", "codigo", "preco"] as const;
+
+describe("lerParametrosLista", () => {
   it("usa os padrões sem parâmetros", () => {
-    expect(lerParametrosTabela({})).toEqual({ busca: "", pagina: 1, tamanhoPagina: 20, deslocamento: 0 });
+    expect(lerParametrosLista({}, { ordens, ordemPadrao: "descricao" })).toEqual({ busca: "", ordem: "descricao" });
   });
 
-  it("lê busca, página e tamanho", () => {
-    expect(lerParametrosTabela({ busca: "  pastilha ", pagina: "3", tamanho: "10" })).toEqual({
+  it("lê busca e ordem válidas", () => {
+    expect(lerParametrosLista({ busca: "  pastilha ", ordem: "preco" }, { ordens, ordemPadrao: "descricao" })).toEqual({
       busca: "pastilha",
-      pagina: 3,
-      tamanhoPagina: 10,
-      deslocamento: 20,
+      ordem: "preco",
     });
   });
 
-  it("ignora valores inválidos", () => {
-    const p = lerParametrosTabela({ pagina: "-2", tamanho: "1000" });
-    expect(p.pagina).toBe(1);
-    expect(p.tamanhoPagina).toBe(20);
-    expect(lerParametrosTabela({ pagina: "abc" }).pagina).toBe(1);
-    expect(lerParametrosTabela({ pagina: "0" }).pagina).toBe(1);
-    expect(lerParametrosTabela({ busca: ["a", "b"] }).busca).toBe("a");
+  it("ignora ordem desconhecida e usa o primeiro valor repetido", () => {
+    const p = lerParametrosLista({ busca: ["a", "b"], ordem: "drop table" }, { ordens, ordemPadrao: "codigo" });
+    expect(p).toEqual({ busca: "a", ordem: "codigo" });
+  });
+});
+
+describe("chaveDaLista", () => {
+  it("não depende da ordem dos parâmetros e muda com a busca", () => {
+    expect(chaveDaLista({ busca: "x", ordem: "preco" })).toBe(chaveDaLista({ ordem: "preco", busca: "x" }));
+    expect(chaveDaLista({ busca: "x" })).not.toBe(chaveDaLista({ busca: "y" }));
   });
 });
 
 describe("hrefComParametros", () => {
-  it("preserva os filtros atuais e troca a página", () => {
-    expect(hrefComParametros({ busca: "óleo", pagina: "1" }, { pagina: 2 })).toBe("?busca=%C3%B3leo&pagina=2");
+  it("preserva os filtros atuais e troca um deles", () => {
+    expect(hrefComParametros({ busca: "óleo", ordem: "codigo" }, { ordem: "preco" })).toBe(
+      "?busca=%C3%B3leo&ordem=preco",
+    );
   });
 
   it("remove parâmetros nulos", () => {
-    expect(hrefComParametros({ busca: "x", pagina: "3" }, { busca: null, pagina: null })).toBe("?");
+    expect(hrefComParametros({ busca: "x" }, { busca: null })).toBe("?");
   });
 });

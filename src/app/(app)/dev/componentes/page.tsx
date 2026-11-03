@@ -1,16 +1,17 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { Suspense } from "react";
-import { PackageIcon, RefreshCwIcon } from "lucide-react";
+import { RefreshCwIcon } from "lucide-react";
 
 import { CabecalhoPagina } from "@/components/layout/cabecalho-pagina";
 import { StatusBadge } from "@/components/status-badge";
 import {
   CampoBusca,
-  lerParametrosTabela,
-  TabelaDados,
+  chaveDaLista,
+  hrefComParametros,
+  lerParametrosLista,
+  SeletorOrdem,
   TabelaDadosCarregando,
-  type ColunaTabela,
   type SearchParams,
 } from "@/components/tabela-dados";
 import {
@@ -20,7 +21,6 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import Decimal from "decimal.js";
 import {
   formatarData,
   formatarDataHora,
@@ -29,9 +29,11 @@ import {
   formatarQuantidade,
 } from "@/lib/formatacao";
 
-import { consultarProdutosFicticios, type ProdutoFicticio } from "./_dados-ficticios";
+import { consultarProdutosFicticios, OPCOES_ORDEM, ORDENS } from "./_dados-ficticios";
+import { carregarMaisProdutosFicticios } from "./acoes";
 import { DemonstracaoDialogo } from "./demonstracao-dialogo";
 import { FormularioExemplo } from "./formulario-exemplo";
+import { TabelaProdutos } from "./tabela-produtos";
 
 export const metadata: Metadata = { title: "Componentes (dev)" };
 
@@ -46,11 +48,17 @@ export default function VitrineComponentesPage({ searchParams }: PageProps<"/dev
         descricao="Vitrine de desenvolvimento. Não aparece em produção."
       />
 
-      <Secao titulo="Tabela com busca e paginação no servidor" descricao="50 produtos fictícios. A busca ignora acentos e atualiza a URL (?busca=&pagina=).">
+      <Secao
+        titulo="Lista com rolagem infinita"
+        descricao="500 produtos fictícios em levas de 50, com cursor keyset. A busca ignora acentos; busca e ordem ficam na URL e recomeçam a lista."
+      >
         <div className="flex flex-col gap-4">
-          <CampoBusca rotulo="Buscar produtos" placeholder="Código, descrição, marca ou referência" />
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <CampoBusca rotulo="Buscar produtos" placeholder="Código, descrição, marca ou referência" />
+            <SeletorOrdem opcoes={OPCOES_ORDEM} padrao="descricao" />
+          </div>
           <Suspense fallback={<TabelaDadosCarregando linhas={10} />}>
-            <TabelaProdutos searchParams={searchParams} />
+            <ListaProdutos searchParams={searchParams} />
           </Suspense>
         </div>
       </Secao>
@@ -114,66 +122,32 @@ function Secao({
   );
 }
 
-function statusEstoque(produto: ProdutoFicticio) {
-  const quantidade = new Decimal(produto.quantidade);
-  if (quantidade.lte(0)) return <StatusBadge variante="destrutivo">Sem estoque</StatusBadge>;
-  if (quantidade.lt(produto.minimo)) return <StatusBadge variante="alerta">Abaixo do mínimo</StatusBadge>;
-  return <StatusBadge variante="sucesso">Em estoque</StatusBadge>;
-}
-
-const COLUNAS: ColunaTabela<ProdutoFicticio>[] = [
-  { id: "codigo", cabecalho: "Código", celula: (p) => <span className="font-mono">{p.codigo}</span> },
-  {
-    id: "descricao",
-    cabecalho: "Descrição",
-    celula: (p) => (
-      <span className="flex flex-col">
-        <span className="font-medium">{p.descricao}</span>
-        <span className="text-xs text-muted-foreground">
-          {p.marca} · Ref. {p.referencia}
-        </span>
-      </span>
-    ),
-  },
-  { id: "saldo", cabecalho: "Saldo", alinhar: "fim", celula: (p) => formatarQuantidade(p.quantidade, p.unidade) },
-  { id: "status", cabecalho: "Estoque", celula: statusEstoque },
-  { id: "preco", cabecalho: "Preço", alinhar: "fim", celula: (p) => formatarMoeda(p.preco) },
-];
-
-async function TabelaProdutos({ searchParams }: { searchParams: Promise<SearchParams> }) {
+/**
+ * Primeira leva no servidor. As próximas vêm de `carregarMais`, uma server
+ * function de leitura com busca e ordem presas numa closure: o Next criptografa
+ * as variáveis capturadas antes de mandá-las ao navegador (o `.bind` não
+ * criptografa), e a função ainda revalida tudo com Zod. Do cliente, só o cursor.
+ */
+async function ListaProdutos({ searchParams }: { searchParams: Promise<SearchParams> }) {
   const parametros = await searchParams;
-  const { busca, pagina, tamanhoPagina, deslocamento } = lerParametrosTabela(parametros, { tamanhoPadrao: 10 });
-  const { linhas, total } = await consultarProdutosFicticios({ busca, deslocamento, tamanhoPagina });
+  const filtros = lerParametrosLista(parametros, { ordens: ORDENS, ordemPadrao: "descricao" });
+  const { linhas, total, proximoCursor } = await consultarProdutosFicticios({ ...filtros, cursor: null });
+
+  async function carregarMais(cursor: string) {
+    "use server";
+    return carregarMaisProdutosFicticios(filtros, cursor);
+  }
 
   return (
-    <TabelaDados
-      rotulo="Produtos fictícios"
-      colunas={COLUNAS}
-      linhas={linhas}
+    <TabelaProdutos
+      // Busca ou ordem nova = lista nova, do zero
+      key={chaveDaLista(filtros)}
+      linhasIniciais={linhas}
       total={total}
-      pagina={pagina}
-      tamanhoPagina={tamanhoPagina}
-      parametros={parametros}
-      chaveLinha={(p) => p.id}
-      busca={busca}
-      vazio={{ titulo: "Nenhum produto cadastrado", icone: PackageIcon }}
-      cartao={(p) => (
-        <div className="flex flex-col gap-2 rounded-lg border p-3">
-          <div className="flex items-start justify-between gap-3">
-            <div className="flex min-w-0 flex-col">
-              <span className="font-medium">{p.descricao}</span>
-              <span className="text-xs text-muted-foreground">
-                <span className="font-mono">{p.codigo}</span> · {p.marca}
-              </span>
-            </div>
-            <span className="shrink-0 font-semibold tabular-nums">{formatarMoeda(p.preco)}</span>
-          </div>
-          <div className="flex items-center justify-between gap-3 text-sm">
-            <span className="tabular-nums">{formatarQuantidade(p.quantidade, p.unidade)}</span>
-            {statusEstoque(p)}
-          </div>
-        </div>
-      )}
+      proximoCursor={proximoCursor}
+      carregarMais={carregarMais}
+      busca={filtros.busca}
+      hrefLimparBusca={hrefComParametros(parametros, { busca: null })}
     />
   );
 }

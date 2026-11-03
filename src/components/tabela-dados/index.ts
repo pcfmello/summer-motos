@@ -1,11 +1,12 @@
 export { CampoBusca } from "./campo-busca";
-export { TabelaDados, type ColunaTabela, type TabelaDadosProps } from "./tabela-dados";
+export { SeletorOrdem } from "./seletor-ordem";
+export { TabelaInfinita, type TabelaInfinitaProps } from "./tabela-infinita";
 export { TabelaDadosCarregando } from "./tabela-dados-carregando";
-export { Paginacao } from "./paginacao";
+export type { ColunaTabela, EstadoVazioLista } from "./tipos";
 export {
+  chaveDaLista,
   hrefComParametros,
-  lerParametrosTabela,
-  TAMANHOS_PAGINA,
-  type ParametrosTabela,
+  lerParametrosLista,
+  type ParametrosLista,
   type SearchParams,
 } from "./parametros";

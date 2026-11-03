@@ -166,3 +166,17 @@ Ficam em `src/server/domain/*`: funções puras, com testes e só com `Decimal`.
 - **Contexto:** a D007 citava `APP_ENCRYPTION_KEY`; o modelo de dados (1.7) e o `.env.example` usam `CHAVES_CIFRAGEM=v1:<base64>,v2:<base64>`.
 - **Decisão:** vale `CHAVES_CIFRAGEM`, uma lista de chaves versionadas. A versão mais alta da lista cifra os valores novos; as anteriores servem só para decifrar, até a recifragem.
 - **Consequência:** a D007 continua valendo, com o nome da variável ajustado por esta decisão.
+
+## D017 — Listas com rolagem infinita (2026-11-03, decisão do usuário)
+
+- **Contexto:** a especificação pedia "tabela com busca e paginação no servidor (via `searchParams`)". O usuário decidiu que **todas as listas usam rolagem infinita**.
+- **Decisão:**
+  - **primeira leva** (50 linhas) renderizada no Server Component, com o total e o cursor da próxima leva;
+  - **busca e filtros** continuam na URL; mudar a busca recomeça a lista;
+  - **próximas levas** vêm de uma server function de leitura declarada dentro da página. Ela captura busca e filtros por closure, que o Next criptografa; não se usa `.bind`, cujos argumentos vão abertos ao navegador e podem voltar alterados. Os filtros são revalidados com Zod no servidor e só o cursor vem do cliente. Ela passa por `getContext()` e pelo filtro de empresa e perfil, como qualquer query. Não se usa route handler para isso;
+  - **paginação por chave (keyset)**, com coluna de ordenação + `id` e cursor opaco validado com Zod. Nunca `OFFSET`, para não repetir nem pular itens quando a lista muda durante a rolagem;
+  - **acessibilidade:** botão "Carregar mais" como reserva para teclado e "Mostrando X de Y" anunciado para leitores de tela.
+- **Consequência:**
+  - as server functions de leitura são a exceção à regra "Server Actions só para escrita" e seguem as mesmas regras de contexto e permissão das queries;
+  - sem virtualização por enquanto: em listas muito longas as linhas se acumulam na tela. Ela pode ser acrescentada depois sem mudar a API;
+  - exportações (CSV) continuam trazendo todos os itens do filtro, independentemente do que foi rolado.

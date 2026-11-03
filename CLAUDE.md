@@ -80,6 +80,7 @@ O banco só muda por migração versionada. É o único caminho, em todos os amb
 - **Tabelas:** `id uuid`, `created_at` e `updated_at` em todas; `empresa_id` nas de negócio.
 - **Desativar, não apagar:** cadastros são desativados; documentos nunca são apagados.
 - **Cores:** nenhum hex direto em componente, só variáveis do tema.
+- **Listas:** todas usam rolagem infinita (D017). A primeira leva vem do Server Component; as próximas, de uma server function de leitura declarada na página, com os filtros capturados por closure (nunca `.bind`) e cursor keyset (`src/lib/cursor.ts`, nunca `OFFSET`); busca e filtros ficam na URL.
 
 ## Regras inegociáveis (resumo da seção 4)
 

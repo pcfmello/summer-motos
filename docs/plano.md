@@ -68,7 +68,7 @@ Pré-requisito: Docker Desktop com integração WSL ativada.
   - seletor de empresa;
   - login.
 - [x] 0.9 Componentes base
-  - tabela com busca e paginação no servidor;
+  - tabela com busca no servidor e rolagem infinita (D017);
   - formulários (react-hook-form + Zod);
   - campos de moeda e quantidade pt-BR.
 - [ ] 0.10 Área `/admin`: criar tenant e empresas e convidar o dono.
