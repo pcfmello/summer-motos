@@ -1,0 +1,191 @@
+# CI do SUMMER: lint, typecheck, testes (domínio e integração), build e imagem Docker.
+#
+# Nenhum segredo de produção aqui. As credenciais abaixo são do Postgres
+# descartável de cada job e valores falsos para o app subir.
+
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [develop, main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  NEXT_TELEMETRY_DISABLED: "1"
+  SUMMER_AMBIENTE: ci
+  # valores falsos, só para o CI
+  BETTER_AUTH_SECRET: ci-segredo-falso-somente-para-testes-0000000000
+  BETTER_AUTH_URL: http://localhost:3000
+  CHAVES_CIFRAGEM: "v1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/preparar
+      - run: pnpm lint
+
+  typecheck:
+    name: Typecheck
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/preparar
+      - run: pnpm typecheck
+
+  test:
+    name: Testes de domínio
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/preparar
+      - run: pnpm test
+
+  integracao:
+    name: Migrações e testes de integração
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17.11-bookworm
+        env:
+          POSTGRES_USER: summer
+          POSTGRES_PASSWORD: summer_ci
+          POSTGRES_DB: summer
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -h 127.0.0.1 -U summer -d summer"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://summer:summer_ci@127.0.0.1:5432/summer
+      DATABASE_URL_MIGRACAO: postgres://summer:summer_ci@127.0.0.1:5432/summer
+      DATABASE_URL_TEST: postgres://summer:summer_ci@127.0.0.1:5432/summer_test
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/preparar
+
+      - name: Criar o banco de testes e conferir as extensões
+        env:
+          PGPASSWORD: summer_ci
+        run: |
+          psql -h 127.0.0.1 -U summer -d summer -v ON_ERROR_STOP=1 -c "CREATE DATABASE summer_test"
+          psql -h 127.0.0.1 -U summer -d summer -v ON_ERROR_STOP=1 -At \
+            -c "SELECT name, default_version FROM pg_available_extensions WHERE name IN ('pg_trgm', 'unaccent') ORDER BY name"
+
+      # Fatia 0.3: os passos abaixo passam a rodar sozinhos quando scripts/migrate.ts existir.
+      - name: Aplicar as migrações do zero (banco vazio)
+        if: hashFiles('scripts/migrate.ts') != ''
+        run: pnpm db:migrate
+
+      - name: Reaplicar as migrações (não pode haver pendência nem erro)
+        if: hashFiles('scripts/migrate.ts') != ''
+        run: |
+          pnpm db:migrate
+          pnpm db:status
+      # TODO(fatia 0.3): conferir que o schema Drizzle não tem mudança sem migração
+      # (drizzle-kit check / generate sem diff), conforme a versão instalada.
+
+      - name: Testes de integração (Postgres real)
+        if: hashFiles('src/**/*.integration.test.ts', 'tests/integration/**/*.test.ts') != ''
+        run: pnpm test:integration
+
+  build:
+    name: Build do Next
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/preparar
+      - run: pnpm build
+      - name: Conferir a saída standalone
+        run: test -f .next/standalone/server.js
+
+  imagem:
+    name: Imagem Docker e docker-compose
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17.11-bookworm
+        env:
+          POSTGRES_USER: summer
+          POSTGRES_PASSWORD: summer_ci
+          POSTGRES_DB: summer
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -h 127.0.0.1 -U summer -d summer"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Validar o docker-compose.yml
+        run: docker compose -f docker-compose.yml config --quiet
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Build do alvo app
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          target: app
+          tags: summer-app:ci
+          load: true
+          push: false
+          cache-from: type=gha,scope=summer-app
+          cache-to: type=gha,scope=summer-app,mode=max
+
+      - name: Conferir o usuário da imagem (não pode ser root)
+        run: |
+          usuario=$(docker image inspect summer-app:ci --format '{{.Config.User}}')
+          echo "usuário: ${usuario}"
+          test -n "${usuario}" && test "${usuario}" != "root" && test "${usuario}" != "0"
+
+      # Fatia 0.11: passa a rodar sozinho quando a rota /api/health existir.
+      - name: Subir a imagem e esperar o HEALTHCHECK ficar healthy
+        if: hashFiles('src/app/api/health/route.ts') != ''
+        run: |
+          docker run -d --name summer-app --network host \
+            -e SUMMER_AMBIENTE -e BETTER_AUTH_SECRET -e BETTER_AUTH_URL -e CHAVES_CIFRAGEM \
+            -e DATABASE_URL=postgres://summer:summer_ci@127.0.0.1:5432/summer \
+            summer-app:ci
+          for _ in $(seq 1 30); do
+            estado=$(docker inspect --format '{{.State.Health.Status}}' summer-app)
+            echo "health: ${estado}"
+            if [ "${estado}" = "healthy" ]; then
+              curl -fsS http://127.0.0.1:3000/api/health
+              exit 0
+            fi
+            sleep 5
+          done
+          docker logs summer-app
+          exit 1

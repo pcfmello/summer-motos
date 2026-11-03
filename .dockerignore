@@ -1,0 +1,52 @@
+# Contexto de build do Docker: só o que o build precisa.
+# Defesa em profundidade: nenhum segredo entra na imagem de qualquer forma,
+# porque as variáveis chegam só em runtime.
+
+# git, CI e editores
+.git
+.github
+.gitignore
+.vscode
+.idea
+.claude
+.DS_Store
+
+# dependências e saídas (refeitas dentro do build)
+node_modules
+.pnpm-store
+.next
+out
+dist
+coverage
+playwright-report
+test-results
+*.tsbuildinfo
+next-env.d.ts
+*.log
+
+# ambiente e segredos
+.env
+.env.*
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+*.jks
+.npmrc
+.netrc
+id_rsa*
+id_ed25519*
+secrets
+backups
+*.dump
+*.sql.gz
+
+# infraestrutura local e documentação (não entram na imagem)
+docker-compose.yml
+compose*.yaml
+Dockerfile
+.dockerignore
+docker/postgres
+docs
+*.md

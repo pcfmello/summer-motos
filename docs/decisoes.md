@@ -145,7 +145,7 @@ Ficam em `src/server/domain/*`: funções puras, com testes e só com `Decimal`.
   - a versão fica congelada. Se ela der problema, trocar por outro storage S3 local (Silo, Garage, SeaweedFS, RustFS) é mudar só o `docker-compose.yml`;
   - validado localmente: bucket criado, chave do app gravando e lendo, `minio-init` idempotente.
 
-## D014 — Tema e componentes base (2026-11-03)
+## D015 — Tema e componentes base (2026-11-03)
 
 - **Contraste:**
   - o `--muted-foreground` da especificação (#71717A) dá 4,40:1 sobre o `--muted` (#F4F4F5), abaixo do mínimo de 4,5 que a própria especificação exige;
@@ -160,3 +160,9 @@ Ficam em `src/server/domain/*`: funções puras, com testes e só com `Decimal`.
 - **Menu por perfil:** a visibilidade dos itens é provisória (`components/layout/navegacao.ts`) e só esconde na tela. A permissão real é verificada no servidor (fatia 0.6).
 - **Vitrine `/dev/componentes`:** só existe fora de produção (`notFound()` em produção).
 - **Logos:** provisórios e neutros em `public/brand/`, até a loja enviar os oficiais.
+
+## D016 — Nome da variável das chaves de cifragem (2026-11-03)
+
+- **Contexto:** a D007 citava `APP_ENCRYPTION_KEY`; o modelo de dados (1.7) e o `.env.example` usam `CHAVES_CIFRAGEM=v1:<base64>,v2:<base64>`.
+- **Decisão:** vale `CHAVES_CIFRAGEM`, uma lista de chaves versionadas. A versão mais alta da lista cifra os valores novos; as anteriores servem só para decifrar, até a recifragem.
+- **Consequência:** a D007 continua valendo, com o nome da variável ajustado por esta decisão.

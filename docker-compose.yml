@@ -1,0 +1,97 @@
+# Ambiente local do SUMMER: Postgres 17 + storage S3 (MinIO).
+#
+# Só para desenvolvimento. Homologação e produção rodam no Coolify (docs/deploy.md).
+#
+#   cp .env.example .env     # uma vez; o Compose lê o .env para as variáveis abaixo
+#   docker compose up -d     # sobe Postgres, MinIO e cria o bucket
+#   docker compose ps        # os dois serviços devem ficar "healthy"
+#   docker compose down      # para os containers e mantém os dados (volumes)
+#
+# Os padrões (${VAR:-padrao}) valem só para desenvolvimento.
+# As portas ficam presas em 127.0.0.1: nada fica exposto na rede local.
+
+name: summer
+
+services:
+  postgres:
+    # Imagem oficial. O contrib (pg_trgm, unaccent) já vem nela; as extensões
+    # são criadas pela primeira migração custom, não aqui.
+    image: postgres:17.11-bookworm
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-summer}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-summer_dev}
+      POSTGRES_DB: ${POSTGRES_DB:-summer}
+      # lido pelo script de init, que cria o banco dos testes de integração
+      POSTGRES_TEST_DB: ${POSTGRES_TEST_DB:-summer_test}
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_dados:/var/lib/postgresql/data
+      # roda só quando o volume está vazio (primeira subida)
+      - ./docker/postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      # -h 127.0.0.1 força TCP: durante o init o servidor temporário só escuta
+      # no socket Unix, então o serviço só fica "healthy" depois do init.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 15s
+
+  minio:
+    # As imagens oficiais minio/minio saíram do Docker Hub em 2025 (o MinIO
+    # Community virou só código-fonte). Usamos o fork comunitário da Pigsty,
+    # última versão publicada com o nome MinIO (D014 em docs/decisoes.md).
+    image: pgsty/minio:RELEASE.2026-08-04T00-00-00Z
+    restart: unless-stopped
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-summer}
+      # mínimo de 8 caracteres
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-summer_dev_minio}
+    ports:
+      - "127.0.0.1:${MINIO_PORT:-9000}:9000" # API S3
+      - "127.0.0.1:${MINIO_CONSOLE_PORT:-9001}:9001" # console web
+    volumes:
+      - minio_dados:/data
+    healthcheck:
+      # a imagem traz o cliente mc; "local" é o alias padrão para localhost:9000
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # One-shot: cria o bucket e a chave de acesso usada pelo app (a mesma ideia
+  # do token do R2 em produção: o app nunca usa a credencial root).
+  # Idempotente: pode rodar a cada "docker compose up".
+  minio-init:
+    image: pgsty/minio:RELEASE.2026-08-04T00-00-00Z
+    depends_on:
+      minio:
+        condition: service_healthy
+    restart: "no"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-summer}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-summer_dev_minio}
+      S3_BUCKET: ${S3_BUCKET:-summer-local}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-summer-app}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-summer_dev_app}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        mc alias set summer http://minio:9000 "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}"
+        mc mb --ignore-existing "summer/$${S3_BUCKET}"
+        # bucket privado: o app entrega arquivos por URL assinada ou pelo servidor
+        mc anonymous set none "summer/$${S3_BUCKET}"
+        # usuário do app (rodar de novo só atualiza a senha)
+        mc admin user add summer "$${S3_ACCESS_KEY_ID}" "$${S3_SECRET_ACCESS_KEY}"
+        # em algumas versões do mc o attach falha se a política já estiver ligada: daí o "|| true"
+        mc admin policy attach summer readwrite --user "$${S3_ACCESS_KEY_ID}" || true
+        echo "bucket $${S3_BUCKET} pronto"
+
+volumes:
+  postgres_dados:
+  minio_dados:
