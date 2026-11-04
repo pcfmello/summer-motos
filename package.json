@@ -18,7 +18,9 @@
     "db:migrate": "tsx scripts/migrate.ts",
     "db:migrate:test": "tsx scripts/migrate.ts --banco=teste",
     "db:status": "tsx scripts/db-status.ts",
-    "db:status:test": "tsx scripts/db-status.ts --banco=teste"
+    "db:status:test": "tsx scripts/db-status.ts --banco=teste",
+    "tenant:criar": "tsx scripts/criar-tenant.ts",
+    "db:seed": "tsx scripts/seed/index.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "7.0.1",
