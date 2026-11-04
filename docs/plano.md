@@ -214,6 +214,11 @@ Pré-requisito: Docker Desktop com integração WSL ativada.
 
 ---
 
+## Travas registradas
+
+- **Convite de membros pelo dono da loja:** só com envio do link por e-mail ao convidado (D033).
+- **Testes obrigatórios da regra 4.2** (duas vendas da última unidade; balcão × Mercado Livre): na Entrega 3.
+
 ## Dependências do usuário
 
 - [ ] Ativar o Docker Desktop com integração WSL (antes da Entrega 0).

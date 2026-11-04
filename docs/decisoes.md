@@ -431,3 +431,63 @@ As revisões de estoque e de isolamento do schema não acharam vazamento entre e
   - a empresa do Simples usa CNPJ alfanumérico;
   - os perfis tributários de exemplo são ligados por grupo fiscal do produto;
   - IBS/CBS só no regime normal, com alíquotas de teste de 2026.
+
+## D032 — Área `/admin` e criação de empresas (2026-11-03)
+
+- **Criação de empresa** (`servicos/empresas.criarEmpresa`):
+  - cria os depósitos "Loja" (padrão e vendável) e "Garantia" (não vendável), o cliente "Consumidor final", a tabela de preço padrão "Balcão" e as 7 sequências;
+  - **sem o parâmetro `modulos`, todos os módulos nascem desligados** (regra 4.1). O admin liga um a um, com auditoria `modulos_alterados`, e ligar o fiscal exige o código IBGE;
+  - `config` e `config_fiscal` vêm do DEFAULT da coluna (fonte única: seção 11 do modelo).
+- **Auditoria de plataforma:** a auditoria exige `empresa_id`, então `tenant_criado` é gravado com a primeira empresa, e suspender ou reativar o tenant é auditado em cada empresa dele.
+- **Nome de tenant único**, ignorando acento, caixa e espaços, com advisory lock na criação.
+- **CNPJ repetido:** conferido antes do INSERT e, numa corrida, pelo erro 23505, com mensagem no campo.
+- **Actions do admin:**
+  - ordem fixa: Zod → `exigirAdminPlataforma()` → `withTransaction` → `revalidatePath`;
+  - o `tenantId`/`empresaId` alvo é um argumento separado do formulário, validado como uuid e conferido no banco;
+  - o erro inesperado vai para o log só com o SQLSTATE.
+- **Convite do primeiro dono:**
+  - e-mail novo: senha provisória forte (cerca de 92 bits), mostrada uma vez;
+  - e-mail existente: vincula sem revelar nada, com a mesma mensagem e sem mudar o nome;
+  - o convite por e-mail com link fica para depois.
+- **Separação admin × empresa:** o admin da plataforma não vira membro de empresa.
+- **`scripts/criar-tenant.ts`:**
+  - cria tenant, empresas e dono numa transação;
+  - recusa tenant ou CNPJ já existentes;
+  - em produção roda empacotado: `node dist/criar-tenant.mjs`.
+
+## D033 — Convite por link de uso único (2026-11-03, substitui a senha provisória da D032)
+
+- **Contexto:** a revisão de isolamento do `/admin` mostrou que a senha provisória:
+  - revelava se o e-mail já tinha conta (pelo campo devolvido e pelo tempo de resposta);
+  - dava acesso de dono a um usuário existente sem aceite (um e-mail digitado errado abriria os dados de uma empresa para outra pessoa);
+  - deixava quem convidou sabendo a senha do dono para sempre.
+  - Além disso, o admin podia se dar acesso de dono a qualquer empresa em operação.
+- **Decisão:**
+  - o convite é uma linha em `convites` (só o hash do token, validade de 7 dias, uso único e atômico, revogável);
+  - a resposta é **sempre a mesma**: um link `/convite/<token>`;
+  - quem não tem conta define nome e senha; quem tem conta entra com ela e aceita, e só então vira membro;
+  - membro reativado volta sem PIN;
+  - **o admin da plataforma só convida o primeiro dono** de cada empresa; os próximos membros são convidados pelo dono da loja (tela numa entrega futura, sobre o mesmo serviço);
+  - `criar-tenant` imprime links, nunca senhas;
+  - tela "Minha conta" com troca de senha.
+- **Consequência:**
+  - sem envio de e-mail ainda, o link é repassado à mão. O envio automático entra quando houver serviço de e-mail;
+  - quem convidou consegue usar o link antes do destinatário, mas aí o destinatário encontra o link já usado e percebe.
+- **Riscos aceitos enquanto o link é entregue à mão** (revisão de 2026-11-03):
+  - **Descobrir se o e-mail tem conta:** quem tem o link descobre isso abrindo-o numa janela anônima (vai para o login ou mostra "criar conta").
+  - **Aceitar no lugar do convidado:** quem tem o link pode aceitar no lugar dele e escolher a senha.
+  - **Por que é aceitável hoje:** só o admin da plataforma convida, uma vez por empresa, e toda criação ou aceite fica na auditoria (com IP truncado e user-agent). A conta criada pelo link não é marcada como e-mail verificado.
+  - **Trava:** a tela de convite para o dono da loja (perfis balcão, estoque, mecânico) **só é liberada junto com o envio do link por e-mail**, direto ao convidado e sem mostrá-lo a quem convida. Isso está no `docs/plano.md`.
+- **Convite e aceite de admin da plataforma:** ficam só no log do `criar-tenant`, porque a `auditoria` exige empresa. Uma auditoria de plataforma é pendência.
+
+## D034 — Script do seed de demonstração (2026-11-03)
+
+- **Trava de ambiente** (sai com código 2 antes de abrir conexão):
+  - `SUMMER_AMBIENTE` precisa ser `local` ou `homologacao`;
+  - `NODE_ENV=production` só é aceito em homologação com `--forcar-homologacao`, porque o container de homologação roda em modo produção.
+- **Transações:** uma para o que é global (motos, usuários e tenant) e uma por empresa. Uma falha não deixa empresa pela metade.
+- **Idempotência pelas chaves naturais:** `INSERT ... ON CONFLICT DO NOTHING` e depois a leitura do id. O "Balcão" de `criarEmpresa` é reaproveitado.
+- **O que já existe não é alterado:** senha, PIN, `config` e módulos são gravados só quando o registro nasce.
+- **Estoque inicial** só para produtos sem nenhum movimento, via `lancarSaldoInicial`. O contador de produto fica depois do maior código numérico.
+- **Logs:** erros do banco aparecem só com tipo e SQLSTATE; senha e PIN nunca são impressos.
+- **Testes de integração:** o `summer_test` é compartilhado. Duas suítes de integração rodando ao mesmo tempo (por exemplo, dois agentes) dão falhas falsas, então rodar uma por vez.
