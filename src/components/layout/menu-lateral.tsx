@@ -23,7 +23,7 @@ import {
 import { cn } from "@/lib/utils";
 
 import { itemAtivo, menuDoPerfil, type ItemMenu } from "./navegacao";
-import type { EmpresaResumo, Perfil } from "./tipos";
+import type { EmpresaResumo, Modulos, Perfil } from "./tipos";
 
 const LOGO_PADRAO = "/brand/logo.svg";
 const SIMBOLO_PADRAO = "/brand/simbolo.svg";
@@ -31,21 +31,23 @@ const SIMBOLO_PADRAO = "/brand/simbolo.svg";
 type MenuLateralProps = {
   empresa: EmpresaResumo;
   perfil: Perfil;
+  /** Módulos ligados na empresa ativa: itens de módulos desligados não aparecem. */
+  modulos: Modulos;
 };
 
 /**
  * Menu lateral preto (--sidebar). Recolhe para ícones no desktop e vira gaveta
  * no celular. Item ativo: fundo --sidebar-accent + barra de 3 px --sidebar-primary.
  */
-export function MenuLateral({ empresa, perfil }: MenuLateralProps) {
+export function MenuLateral({ empresa, perfil, modulos }: MenuLateralProps) {
   return (
     <Sidebar collapsible="icon" aria-label="Menu principal">
       <SidebarHeader className="p-3 group-data-[collapsible=icon]:p-2">
         <LogoEmpresa empresa={empresa} />
       </SidebarHeader>
       <SidebarContent>
-        <Suspense fallback={<Navegacao perfil={perfil} pathname={null} />}>
-          <NavegacaoComRota perfil={perfil} />
+        <Suspense fallback={<Navegacao perfil={perfil} modulos={modulos} pathname={null} />}>
+          <NavegacaoComRota perfil={perfil} modulos={modulos} />
         </Suspense>
       </SidebarContent>
       {process.env.NODE_ENV !== "production" ? (
@@ -53,7 +55,7 @@ export function MenuLateral({ empresa, perfil }: MenuLateralProps) {
           <SidebarMenu>
             <SidebarMenuItem>
               <ItemNavegacao
-                item={{ titulo: "Componentes (dev)", href: "/dev/componentes", icone: BlocksIcon, perfis: [] }}
+                item={{ titulo: "Componentes (dev)", href: "/dev/componentes", icone: BlocksIcon, capacidades: [] }}
                 ativo={false}
                 secundario
               />
@@ -100,15 +102,15 @@ function LogoEmpresa({ empresa }: { empresa: EmpresaResumo }) {
   );
 }
 
-function NavegacaoComRota({ perfil }: { perfil: Perfil }) {
+function NavegacaoComRota({ perfil, modulos }: { perfil: Perfil; modulos: Modulos }) {
   const pathname = usePathname();
-  return <Navegacao perfil={perfil} pathname={pathname} />;
+  return <Navegacao perfil={perfil} modulos={modulos} pathname={pathname} />;
 }
 
-function Navegacao({ perfil, pathname }: { perfil: Perfil; pathname: string | null }) {
+function Navegacao({ perfil, modulos, pathname }: { perfil: Perfil; modulos: Modulos; pathname: string | null }) {
   return (
     <nav aria-label="Seções do sistema">
-      {menuDoPerfil(perfil).map((grupo, indice) => (
+      {menuDoPerfil(perfil, modulos).map((grupo, indice) => (
         <SidebarGroup key={grupo.titulo ?? indice}>
           {grupo.titulo ? (
             <SidebarGroupLabel className="text-sidebar-muted-foreground">{grupo.titulo}</SidebarGroupLabel>

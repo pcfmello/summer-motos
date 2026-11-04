@@ -124,6 +124,11 @@ export const membros = pgTable(
     pinHash: text("pin_hash"),
     pinFalhas: smallint("pin_falhas").notNull().default(0),
     pinBloqueadoAte: timestamptz("pin_bloqueado_ate"),
+    /**
+     * Bloqueios seguidos sem um acerto. No 3º, o PIN só volta a valer quando o
+     * próprio dono o redefinir (bloqueio progressivo da fatia 0.6).
+     */
+    pinBloqueios: smallint("pin_bloqueios").notNull().default(0),
     ativo: boolean("ativo").notNull().default(true),
     ...colunasTempo(),
   },
@@ -137,6 +142,7 @@ export const membros = pgTable(
     checkIn("membros", t.perfil, PERFIS),
     checkColuna("membros", t.pinHash, sql`${t.pinHash} is null or ${t.perfil} = 'dono'`),
     checkColuna("membros", t.pinFalhas, sql`${t.pinFalhas} >= 0`),
+    checkColuna("membros", t.pinBloqueios, sql`${t.pinBloqueios} >= 0`),
   ],
 );
 

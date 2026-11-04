@@ -1,0 +1,2 @@
+ALTER TABLE "membros" ADD COLUMN "pin_bloqueios" smallint DEFAULT 0 NOT NULL;--> statement-breakpoint
+ALTER TABLE "membros" ADD CONSTRAINT "membros_pin_bloqueios_check" CHECK ("membros"."pin_bloqueios" >= 0);

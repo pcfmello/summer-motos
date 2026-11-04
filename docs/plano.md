@@ -56,7 +56,7 @@ Pré-requisito: Docker Desktop com integração WSL ativada.
   - EAN-13 interno e GTIN fiscal;
   - rateio de desconto;
   - `Decimal` e formatação pt-BR.
-- [ ] 0.6 Autenticação
+- [x] 0.6 Autenticação
   - Obrigatório (revisão de isolamento):
     - o `getContext()` confere a cada requisição membro ativo, empresa ativa e tenant `ativo`;
     - o perfil é lido sempre do banco;
@@ -68,7 +68,7 @@ Pré-requisito: Docker Desktop com integração WSL ativada.
   - `membros` e empresa ativa na sessão;
   - `getContext()`;
   - matriz de permissões e checagem de módulo.
-- [ ] 0.7 Auditoria e sequências: `registrarAuditoria` e `proximoNumero`, com teste de concorrência.
+- [x] 0.7 Auditoria e sequências: `registrarAuditoria` e `proximoNumero`, com teste de concorrência.
 - [x] 0.8 Layout e tema (logos provisórios; o seletor de empresa e o login ganham lógica na 0.6)
   - Montserrat e cores da seção 2.1 em OKLCH;
   - menu lateral preto com o logo da empresa ativa;
@@ -79,13 +79,13 @@ Pré-requisito: Docker Desktop com integração WSL ativada.
   - formulários (react-hook-form + Zod);
   - campos de moeda e quantidade pt-BR.
 - [ ] 0.10 Área `/admin`: criar tenant e empresas e convidar o dono.
-- [ ] 0.11 Scripts e saúde
+- [ ] 0.11 Scripts e saúde (🟨 `/api/health` e worker prontos; faltam seed e `criar-tenant`)
   - `scripts/criar-tenant.ts`;
   - seed idempotente (seção 8; os kits do seed são produtos comuns, ver D012);
   - `/api/health`, testando o banco;
   - esqueleto do worker pg-boss.
 - [ ] 0.12 Testes de isolamento: empresa A × B (mesmo tenant) e tenant X × Y.
-- [ ] 0.13 Deploy (🟨 Dockerfile alvo `app`, CI, `.dockerignore` e rascunho do `docs/deploy.md` prontos; faltam `worker`/`migrate`, GitHub, Coolify, R2 e backup)
+- [ ] 0.13 Deploy (🟨 Dockerfile com `app`/`worker`/`migrate`, entrypoint com migração na subida, CI e `docs/deploy.md` prontos e testados no Docker local; faltam GitHub, Coolify, R2 e backup)
   - `Dockerfile` multi-stage (`app`, `worker`, `migrate`);
   - GitHub Actions (lint, typecheck, testes e migrações do zero com Postgres de serviço);
   - Coolify (homologação em `develop`, produção em `main`);

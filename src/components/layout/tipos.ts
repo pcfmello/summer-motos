@@ -1,8 +1,10 @@
 /**
- * Tipos que o shell da aplicação recebe por props. Hoje vêm de
- * `src/app/(app)/_dados-provisorios.ts`; depois, de `getContext()`.
+ * Tipos que o shell da aplicação recebe por props, montados no servidor a
+ * partir de `getContext()` e das empresas do usuário.
  */
-export type Perfil = "dono" | "balcao" | "estoque" | "mecanico";
+import type { Perfil } from "@/server/auth/permissoes";
+
+export type { Modulos, Perfil } from "@/server/auth/permissoes";
 
 export type RegimeTributario = "simples_nacional" | "lucro_presumido" | "lucro_real";
 

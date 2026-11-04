@@ -134,6 +134,13 @@
       "when": 1793747725881,
       "tag": "0018_controle_busca_gatilhos_indices",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1793750629197,
+      "tag": "0019_membros_pin_bloqueios",
+      "breakpoints": true
     }
   ]
 }

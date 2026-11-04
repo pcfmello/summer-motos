@@ -9,7 +9,14 @@ Responda pelo número, por exemplo "P2: não, o vendedor não perde a comissão"
 
 ## Para o diretor da loja
 
-Nenhuma em aberto. As quatro sobre a comissão do vendedor (base depois do desconto, desconto no próximo pagamento em caso de cancelamento ou devolução, vendedor preenchido com quem está no caixa, correção da mão de obra por devolução) foram respondidas em 2026-11-03 e seguem a proposta (D021).
+As perguntas sobre a comissão do vendedor foram respondidas em 2026-11-03 (D021).
+
+| # | Pergunta | Como está hoje |
+|---|---|---|
+| P8 | Quem pode fazer o quê nos pontos que a especificação não definia? | **Só o dono:** alterar preços; gerir os cadastros de perfis tributários, tabelas de preço, serviços, mecânicos e vendedores; fazer devolução de cliente; cancelar OS. **Balcão:** lança peças e serviços na OS e entrega a OS (com o pagamento), mas não muda o status no quadro. **Dono e mecânico:** mudam o status da OS. **Etiquetas:** só dono e estoque. Diga o que quer diferente. |
+| P9 | O **markup** (a porcentagem que forma o preço sugerido) conta como alteração de preço? | Sim: só o dono altera o markup do produto e da categoria. O estoque cadastra a peça, e o dono define o preço. |
+| P10 | Um mecânico ou balconista lança na OS um serviço que não está na tabela ("descrição livre"). Quem define a comissão do mecânico nesse serviço? | O dono define. Até lá, o serviço aparece como "comissão a definir" para ele. |
+| P11 | A OS só pode ser marcada como **entregue** depois de passar por **"pronta"**? | Sim: o fluxo é aberta → em execução → pronta → entregue. Isso evita entregar uma moto que o mecânico não terminou. |
 
 ## Para o contador (não travam o trabalho até a Entrega 3)
 

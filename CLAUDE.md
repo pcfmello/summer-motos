@@ -77,6 +77,7 @@ O banco só muda por migração versionada. É o único caminho, em todos os amb
   - tudo o que decide é lido dentro do `fn`, com `FOR UPDATE`, em ordem de `produto_id`;
   - nenhum estado acumulado fora do `fn`;
   - nunca `redirect()`/`notFound()` dentro do `fn`.
+- **Checagem por página:** toda página do `/admin` chama `exigirAdminPlataforma()` e toda página do `(app)` que lê dados chama `exigirContexto()`. O layout sozinho não basta, porque não roda de novo na navegação pelo cliente.
 - **`getContext()`** retorna `{ usuario, tenantId, empresaId, perfil }` da sessão. `tenantId` e `empresaId` nunca vêm do cliente, e nenhum schema Zod de entrada aceita `empresaId`.
 - **Números:**
   - dinheiro `numeric(14,2)`, quantidade `numeric(14,4)`, custo `numeric(16,6)` e alíquota `numeric(7,4)`;

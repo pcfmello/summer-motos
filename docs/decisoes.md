@@ -377,3 +377,28 @@ As revisões de estoque e de isolamento do schema não acharam vazamento entre e
   - o `docker/entrypoint.sh` aplica a D020 e exige `DATABASE_URL_MIGRACAO` quando `MIGRAR_AO_INICIAR=true`, sem fallback;
   - `start-period` de 60 s.
 - **CI:** builds dos três alvos, migração num banco vazio, app e worker saudáveis, 503 sem banco e SIGTERM do worker.
+
+## D029 — Endurecimento da autenticação depois da revisão (2026-11-03)
+
+- **Redirecionamento depois do login (`destinoSeguro`):**
+  - recusa caracteres de controle e `\`;
+  - interpreta a URL e confere a origem;
+  - **confere o resultado final**, porque a normalização de `.`/`..` (inclusive `%2e`) recria `//host`.
+- **Dois limites de login em memória:**
+  - por IP + rota: 10 por minuto, num armazenamento próprio que não conta a chave fixa do Better Auth para IP indeterminado;
+  - por e-mail: 10 falhas em 15 minutos, com resposta 429 genérica; um acerto zera.
+- **Produção:**
+  - `BETTER_AUTH_TRUSTED_PROXIES` (sub-rede da rede `coolify`) e `BETTER_AUTH_URL` com https são obrigatórias;
+  - cookies `Secure`;
+  - sem elas, a autenticação recusa a configuração na primeira requisição.
+- **OS:**
+  - `exigirAcessoOS(tx, ctx, osId)` é obrigatório para todo `osId` vindo do cliente. O mecânico só acessa as OS em que é responsável ou executor (D018-P9), por meio de um cadastro ativo em `mecanicos` ligado ao login. "Não encontrada" e "não permitida" dão o mesmo erro.
+  - **Transições de status por perfil:** o mecânico só move entre aberta, aguardando peça, em execução e pronta; `entregue` exige `os.entregar` e parte de `pronta`; `cancelada` exige `os.cancelar`.
+- **Comissão informada por quem não é dono é sempre ignorada.** Serviço lançado à mão por quem não é dono fica "a definir pelo dono" (`perguntas-abertas.md`, P10).
+- **PIN:**
+  - bloqueio progressivo: o 3º bloqueio seguido é definitivo até o dono redefinir (coluna `membros.pin_bloqueios`, migração aditiva 0019);
+  - bloqueios auditados;
+  - resposta única `pin_invalido`.
+- **Admin da plataforma** só nasce por `criarAdminPlataforma`; formulário nenhum cria admin.
+- **Auditoria:** o filtro também remove `pin`, chaves de API, chave privada, `authorization`, certificado e CSC (exceto `certificado_validade`, `certificado_enviado_em` e `csc_id`).
+- **Capacidades novas:** `produtos.buscar_para_documento` (dono, balcão e mecânico, nunca com custo) e `os.definir_comissao_servico_manual` (dono). O markup conta como preço (`precos.alterar`; P9).

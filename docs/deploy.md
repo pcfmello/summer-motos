@@ -100,7 +100,9 @@ A referência completa, comentada, está no [`.env.example`](../.env.example). *
 | `DATABASE_URL_TEST` | | | | só local e CI |
 | `DATABASE_POOL_MAX` | ✓ | ✓ | | ex.: app 10, worker 5 |
 | `BETTER_AUTH_SECRET` | ✓ | ✓ | ✓ | um por ambiente (`openssl rand -base64 32`) |
-| `BETTER_AUTH_URL` | ✓ | ✓ | | domínio HTTPS do ambiente |
+| `BETTER_AUTH_URL` | ✓ | ✓ | | domínio HTTPS do ambiente. Em produção (`NODE_ENV=production`), se não for `https://`, a autenticação recusa a configuração: login e telas dão erro já na primeira requisição, com a causa no log |
+| `BETTER_AUTH_TRUSTED_PROXIES` | ✓ | | | **obrigatória em produção** (vazia, a autenticação recusa a configuração, como faz com o `BETTER_AUTH_SECRET`): IPs/CIDRs dos proxies à frente do app, para o limite de tentativas do login achar o IP real no `x-forwarded-for`. No Coolify, a sub-rede da rede Docker do proxy (Traefik): `docker network inspect coolify --format '{{(index .IPAM.Config 0).Subnet}}'` (ex.: `10.0.1.0/24`). Com Cloudflare em modo proxy na frente, acrescente as faixas da Cloudflare. Nunca uma faixa de onde vêm clientes |
+| `BETTER_AUTH_TRUSTED_ORIGINS` | ✓ | | | opcional: outras origens aceitas no login, além da do `BETTER_AUTH_URL` (lista separada por vírgula). Normalmente vazia |
 | `S3_ENDPOINT` | ✓ | ✓ | | `https://<ACCOUNT_ID>.r2.cloudflarestorage.com` |
 | `S3_REGION` | ✓ | ✓ | | `auto` (R2) |
 | `S3_BUCKET` | ✓ | ✓ | | bucket do ambiente |
