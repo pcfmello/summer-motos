@@ -5,7 +5,7 @@ Status possíveis: ⬜ não iniciada · 🟨 em andamento · 🟦 em homologaç�
 | Entrega | Nome | Status |
 |---|---|---|
 | — | Fase A: documentos de base e modelo de dados | ✅ |
-| 0 | Fundação | 🟨 |
+| 0 | Fundação | 🟨 código pronto (v0.1.0); falta publicar em homologação e produção |
 | 1 | Cadastros e consulta | ⬜ |
 | 2 | Orçamentos | ⬜ |
 | 3 | A virada: estoque, vendas, OS e notas | ⬜ |
@@ -78,20 +78,20 @@ Pré-requisito: Docker Desktop com integração WSL ativada.
   - tabela com busca no servidor e rolagem infinita (D017);
   - formulários (react-hook-form + Zod);
   - campos de moeda e quantidade pt-BR.
-- [ ] 0.10 Área `/admin`: criar tenant e empresas e convidar o dono.
-- [ ] 0.11 Scripts e saúde (🟨 `/api/health` e worker prontos; faltam seed e `criar-tenant`)
+- [x] 0.10 Área `/admin`: criar tenant e empresas e convidar o dono (convite por link, D033).
+- [x] 0.11 Scripts e saúde (seed sem histórico de vendas/OS até as Entregas 2 e 3, D030)
   - `scripts/criar-tenant.ts`;
   - seed idempotente (seção 8; os kits do seed são produtos comuns, ver D012);
   - `/api/health`, testando o banco;
   - esqueleto do worker pg-boss.
-- [ ] 0.12 Testes de isolamento: empresa A × B (mesmo tenant) e tenant X × Y.
+- [x] 0.12 Testes de isolamento: empresa A × B (mesmo tenant) e tenant X × Y (harness com guarda de cobertura).
 - [ ] 0.13 Deploy (🟨 Dockerfile com `app`/`worker`/`migrate`, entrypoint com migração na subida, CI e `docs/deploy.md` prontos e testados no Docker local; faltam GitHub, Coolify, R2 e backup)
   - `Dockerfile` multi-stage (`app`, `worker`, `migrate`);
   - GitHub Actions (lint, typecheck, testes e migrações do zero com Postgres de serviço);
   - Coolify (homologação em `develop`, produção em `main`);
   - backup diário no R2;
   - `docs/deploy.md`.
-- [ ] Fechamento (skill `fechar-entrega`): roteiro `docs/homologacao/entrega-0.md` e `CHANGELOG.md`.
+- [x] Fechamento (skill `fechar-entrega`): roteiro `docs/homologacao/entrega-0.md` e `CHANGELOG.md` (v0.1.0). A tag sai só com a aprovação.
 
 **Pronto quando:**
 - login, troca de empresa e criação de tenant pelo admin funcionam;

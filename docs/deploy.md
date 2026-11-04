@@ -115,6 +115,7 @@ A referência completa, comentada, está no [`.env.example`](../.env.example). *
 | `MIGRAR_AO_INICIAR` | ✓ | ✓ | | `true` nos dois (D020) |
 | `MIGRACOES_DIR` | ✓ | ✓ | | opcional: pasta das migrações para o `migrate.mjs` (padrão `src/server/db/migrations`, relativo ao diretório de trabalho) |
 | `POSTGRES_*`, `MINIO_*` | | | | só o `docker-compose.yml` local |
+| `SEED_SENHA_ADMIN`, `SEED_SENHA_DONO`, `SEED_SENHA_BALCAO`, `SEED_SENHA_ESTOQUE`, `SEED_SENHA_MECANICO`, `SEED_PIN_DONO` | | | ✓ | **só homologação** (e local): usadas pelo `pnpm db:seed`, que recusa rodar em produção (D034). Nunca cadastrar em produção |
 
 No Coolify:
 
