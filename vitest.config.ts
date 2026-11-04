@@ -11,7 +11,8 @@ export default defineConfig({
         extends: true,
         test: {
           name: "unit",
-          include: ["src/**/*.test.ts"],
+          // scripts/**: dados do seed de demonstração (funções puras, sem banco)
+          include: ["src/**/*.test.ts", "scripts/**/*.test.ts"],
           exclude: ["src/**/*.integration.test.ts"],
           environment: "node",
         },

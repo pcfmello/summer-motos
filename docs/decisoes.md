@@ -217,7 +217,7 @@ As perguntas D1 a D5 de `perguntas-abertas.md` não foram respondidas e seguem a
   - O CHECK do banco continua barrando só o EAN-13 com 2, como última barreira; o domínio barra o resto.
 - **D3:** o arredondamento da empresa vale para o preço calculado por tabela, nunca para o preço fixo.
 - **D4:** o custo da entrada manual é por unidade de compra.
-- **D5:** o saldo inicial exige custo; peça sem custo fica marcada e fora da margem.
+- **D5:** o saldo inicial traz o custo do TeraSoft quando houver. Peça sem custo é aceita com custo nulo ("sem custo"), fica fora da margem até ter custo e não é gravada como R$ 0 (texto corrigido pela D026/D031).
 
 ## D020 — Migrações aplicadas na subida da versão nova (2026-11-03, complementa a D010)
 
@@ -402,3 +402,32 @@ As revisões de estoque e de isolamento do schema não acharam vazamento entre e
 - **Admin da plataforma** só nasce por `criarAdminPlataforma`; formulário nenhum cria admin.
 - **Auditoria:** o filtro também remove `pin`, chaves de API, chave privada, `authorization`, certificado e CSC (exceto `certificado_validade`, `certificado_enviado_em` e `csc_id`).
 - **Capacidades novas:** `produtos.buscar_para_documento` (dono, balcão e mecânico, nunca com custo) e `os.definir_comissao_servico_manual` (dono). O markup conta como preço (`precos.alterar`; P9).
+
+## D030 — Escopo do seed na Entrega 0 (2026-11-03)
+
+- **Contexto:** a seção 8 pede 60 dias de histórico de vendas, orçamentos e OS, mas esses módulos só existem nas Entregas 2 e 3.
+- **Decisão:**
+  - o seed da Entrega 0 cria tenant, empresas, usuários, motos, catálogo, cadastros, canais de demonstração e o estoque inicial;
+  - o estoque inicial é lançado pelo caminho oficial (`servicos/estoque.lancarSaldoInicial`, movimento `saldo_inicial` com outbox), nunca com insert direto no saldo;
+  - o histórico é acrescentado ao seed na entrega que criar cada módulo.
+- **Consequência:** o painel e a tela de comissões só terão números depois da Entrega 3.
+
+## D031 — Núcleo do serviço de estoque e dados do seed (2026-11-03)
+
+- **Custo de entrada sem custo informado** (regra única do domínio, `aplicarEntrada`):
+  - com saldo positivo e custo médio conhecido, a peça entra pelo médio atual;
+  - senão, entra pelo último custo;
+  - sem nenhum dos dois, o custo fica nulo.
+  - O kardex grava o custo efetivo. O último custo só muda quando um custo é informado.
+- **Validação:** quantidade com mais de 4 casas, custo com mais de 6, valores a partir de 10¹⁰ e produto repetido são recusados, nunca arredondados.
+- **`servicos/estoque.lancarSaldoInicial`:** só para o seed e cargas antes da virada (motivo obrigatório, sem origem).
+  - **Inventário da Entrega 3:** a aplicação do inventário da virada é uma operação própria (`aplicarInventario`). Ela calcula a diferença sobre o saldo já travado e marca cada item como aplicado, o que impede aplicar duas vezes.
+  - **Regra geral:** uma operação trava todos os seus saldos de uma vez, em ordem de `produto_id`, nunca em duas chamadas na mesma transação.
+- **Outbox:** um evento `produto.disponivel_alterado` por produto, sem quantidade (o worker calcula no envio), só para movimentos em depósito vendável.
+- **Seed:**
+  - `gtin_fiscal` vazio, porque o EAN do seed é fictício;
+  - EAN `789` + fabricante + item + DV, e caixa como GTIN-14;
+  - mesmo catálogo nas duas empresas;
+  - a empresa do Simples usa CNPJ alfanumérico;
+  - os perfis tributários de exemplo são ligados por grupo fiscal do produto;
+  - IBS/CBS só no regime normal, com alíquotas de teste de 2026.

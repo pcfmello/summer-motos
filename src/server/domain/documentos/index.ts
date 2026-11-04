@@ -26,13 +26,20 @@ function digitoCpf(base: string): number {
   return resto === 10 ? 0 : resto;
 }
 
+/** Calcula os 2 DVs de uma base de 9 dígitos (usado para gerar CPFs válidos nos dados de demonstração). */
+export function calcularDigitosCpf(base: string): string {
+  if (!/^\d{9}$/.test(base)) throw new Error("A base do CPF deve ter 9 dígitos.");
+  const d1 = digitoCpf(base);
+  return `${d1}${digitoCpf(base + d1)}`;
+}
+
 export function validarCpf(entrada: string): ResultadoValidacao<string> {
   const cpf = normalizarCpf(entrada);
   if (!/^\d{11}$/.test(cpf)) return falha("formato", "CPF deve ter 11 dígitos.");
   if (todosIguais(cpf)) return falha("sequencia_repetida", "CPF inválido: todos os dígitos são iguais.");
-  const d1 = digitoCpf(cpf.slice(0, 9));
-  const d2 = digitoCpf(cpf.slice(0, 9) + d1);
-  if (cpf.slice(9) !== `${d1}${d2}`) return falha("digito_verificador", "CPF inválido: dígito verificador não confere.");
+  if (cpf.slice(9) !== calcularDigitosCpf(cpf.slice(0, 9))) {
+    return falha("digito_verificador", "CPF inválido: dígito verificador não confere.");
+  }
   return { ok: true, valor: cpf };
 }
 

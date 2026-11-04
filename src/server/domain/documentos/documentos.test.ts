@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   calcularDigitosCnpj,
+  calcularDigitosCpf,
   normalizarCest,
   normalizarCnpj,
   normalizarCpf,
@@ -45,6 +46,20 @@ describe("CPF", () => {
 
   it("normalizarCpf tira a máscara e os espaços", () => {
     expect(normalizarCpf(" 529.982.247-25 ")).toBe("52998224725");
+  });
+
+  it.each([
+    ["529982247", "25"],
+    ["111444777", "35"],
+    ["390533447", "05"],
+  ])("calcularDigitosCpf(%s) = %s", (base, digitos) => {
+    expect(calcularDigitosCpf(base)).toBe(digitos);
+    expect(validarCpf(base + digitos).ok).toBe(true);
+  });
+
+  it("calcularDigitosCpf recusa base que não tem 9 dígitos", () => {
+    expect(() => calcularDigitosCpf("12345678")).toThrow(/9 dígitos/);
+    expect(() => calcularDigitosCpf("12345678A")).toThrow(/9 dígitos/);
   });
 });
 
