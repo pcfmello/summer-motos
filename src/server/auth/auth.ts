@@ -125,7 +125,7 @@ export const auth = betterAuth({
     minPasswordLength: 10,
     maxPasswordLength: 128,
     revokeSessionsOnPasswordReset: true,
-    // o envio do link de definição/redefinição de senha chega com o convite do /admin (0.10)
+    // convites usam link de uso único próprio (tabela convites, D033); a redefinição por e-mail fica para quando houver envio de e-mail
   },
   account: { accountLinking: { enabled: false } },
   rateLimit: {

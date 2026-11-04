@@ -16,10 +16,17 @@ import { PARAM_DESTINO, PREFIXO_COOKIE, ROTA_LOGIN } from "@/lib/rotas-auth";
 
 /** Rotas abertas, sem cookie de sessão. */
 const ROTAS_PUBLICAS = [ROTA_LOGIN];
+/**
+ * Prefixos abertos: o convite por link (D033) é aberto por quem ainda não tem
+ * conta. A página confere o token no banco e tem limite de tentativas por IP.
+ */
+const PREFIXOS_PUBLICOS = ["/convite/"];
 
 export function proxy(request: NextRequest) {
   const { pathname, search } = request.nextUrl;
-  if (ROTAS_PUBLICAS.includes(pathname)) return NextResponse.next();
+  if (ROTAS_PUBLICAS.includes(pathname) || PREFIXOS_PUBLICOS.some((p) => pathname.startsWith(p))) {
+    return NextResponse.next();
+  }
 
   if (!getSessionCookie(request, { cookiePrefix: PREFIXO_COOKIE })) {
     const destino = new URL(ROTA_LOGIN, request.url);

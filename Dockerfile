@@ -61,6 +61,8 @@ ENV NODE_ENV=production \
 WORKDIR /app
 COPY --link --chmod=755 docker/entrypoint.sh /usr/local/bin/summer-entrypoint
 COPY --link --from=build /app/dist/migrate.mjs ./dist/migrate.mjs
+# cria tenant, empresas e dono em produção: node dist/criar-tenant.mjs --ajuda
+COPY --link --from=build /app/dist/criar-tenant.mjs ./dist/criar-tenant.mjs
 # mesmo caminho relativo do código (PASTA_MIGRACOES_PADRAO): sem MIGRACOES_DIR
 COPY --link --from=build /app/src/server/db/migrations ./src/server/db/migrations
 

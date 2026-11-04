@@ -1,6 +1,7 @@
 "use client";
 
 import { LogOutIcon, UserIcon } from "lucide-react";
+import Link from "next/link";
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -62,9 +63,11 @@ export function MenuUsuario({ usuario, aoSair }: MenuUsuarioProps) {
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
         <DropdownMenuGroup>
-          <DropdownMenuItem disabled className="min-h-11 md:min-h-8">
-            <UserIcon aria-hidden="true" />
-            Meus dados (em breve)
+          <DropdownMenuItem asChild className="min-h-11 md:min-h-8">
+            <Link href="/conta">
+              <UserIcon aria-hidden="true" />
+              Minha conta
+            </Link>
           </DropdownMenuItem>
           <DropdownMenuItem
             disabled={!aoSair}

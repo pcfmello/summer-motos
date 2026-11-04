@@ -1,6 +1,6 @@
 /**
- * Cliente do Better Auth no navegador. Só faz login: chama
- * `POST /api/auth/sign-in/email`, que passa pelo limite de tentativas do
+ * Cliente do Better Auth no navegador: login e troca de senha ("Minha conta"). Chama
+ * `POST /api/auth/sign-in/email` e `/change-password`, que passam pelo limite de tentativas do
  * Better Auth (as chamadas `auth.api.*` no servidor não passam). O logout é a
  * server action `sair`.
  */

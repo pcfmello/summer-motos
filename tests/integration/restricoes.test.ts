@@ -38,8 +38,9 @@ describe("restrições de isolamento no catálogo", () => {
     expect(r.rows).toEqual([]);
 
     const total = await pool.query(`with t as (${TABELAS_COM_EMPRESA}) select count(*)::int as n from t`);
-    // 59 tabelas menos as 8 globais (plataforma, Better Auth e referência de motos)
-    expect(total.rows[0].n).toBe(51);
+    // 60 tabelas menos as 8 globais (plataforma, Better Auth e referência de motos);
+    // `convites` tem empresa_id (nulo só no convite de admin da plataforma, D033)
+    expect(total.rows[0].n).toBe(52);
   });
 
   it("toda FK entre duas tabelas com empresa_id começa por empresa_id nos dois lados", async () => {

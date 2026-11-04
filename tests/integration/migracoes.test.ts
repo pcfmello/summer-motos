@@ -88,10 +88,10 @@ describe("migrações", () => {
     expect(await valor<string>("select public.f_unaccent('Óleo de câmbio')")).toBe("Oleo de cambio");
   });
 
-  it("cria as 59 tabelas do modelo e os gatilhos", async () => {
+  it("cria as 60 tabelas do modelo (59 + convites, D033) e os gatilhos", async () => {
     expect(
       await valor<string>("select count(*) from pg_tables where schemaname = 'public'"),
-    ).toBe("59");
+    ).toBe("60");
 
     const gatilhos = await cliente.query<{ funcao: string; tabelas: string }>(
       `select p.proname as funcao, string_agg(c.relname, ',' order by c.relname) as tabelas
@@ -116,7 +116,7 @@ describe("migrações", () => {
         `select count(*) from pg_trigger t join pg_proc p on p.oid = t.tgfoid
           where not t.tgisinternal and p.proname = 'set_updated_at'`,
       ),
-    ).toBe("55");
+    ).toBe("56");
   });
 
   it("toda tabela tem id, created_at e updated_at", async () => {

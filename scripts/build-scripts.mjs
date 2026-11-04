@@ -3,6 +3,7 @@
  *
  *   dist/migrate.mjs  ← scripts/migrate.ts   (migrações do Drizzle + schema do pg-boss)
  *   dist/worker.mjs   ← src/worker/index.ts  (consumidor da fila pg-boss)
+ *   dist/criar-tenant.mjs ← scripts/criar-tenant.ts (tenant, empresas e dono em produção)
  *
  * - ESM para Node 22, com o alias "@/" resolvido pelo próprio esbuild (lê o
  *   `paths` do tsconfig.json).
@@ -41,6 +42,7 @@ const proibirServerOnly = {
 const alvos = [
   { entrada: "scripts/migrate.ts", saida: "migrate.mjs" },
   { entrada: "src/worker/index.ts", saida: "worker.mjs" },
+  { entrada: "scripts/criar-tenant.ts", saida: "criar-tenant.mjs" },
 ];
 
 await rm(saida, { recursive: true, force: true });

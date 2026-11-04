@@ -9,6 +9,7 @@
 import { sql } from "drizzle-orm";
 import {
   boolean,
+  check,
   date,
   index,
   jsonb,
@@ -16,6 +17,7 @@ import {
   smallint,
   text,
   unique,
+  uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
 import {
@@ -229,5 +231,74 @@ export const credenciaisFiscais = pgTable(
     chaveEmpresaId("credenciais_fiscais", t),
     unique("credenciais_fiscais_empresa_id_ambiente_key").on(t.empresaId, t.ambiente),
     checkIn("credenciais_fiscais", t.ambiente, AMBIENTES_FISCAIS),
+  ],
+);
+
+// 2.9 [ADIÇÃO, D033] ---------------------------------------------------------
+/**
+ * `empresa`: convite para ser membro de uma empresa com um perfil (o admin
+ * convida o primeiro dono; o dono convida os demais numa entrega futura).
+ * `admin_plataforma`: convite para criar a conta de um admin da plataforma
+ * (`scripts/criar-tenant.ts --admin-plataforma`), sem empresa e sem perfil.
+ */
+export const TIPOS_CONVITE = ["empresa", "admin_plataforma"] as const;
+
+/**
+ * Convite por link de uso único (D033). O token (256 bits) só aparece uma vez,
+ * no link; aqui fica o SHA-256 dele em hexadecimal. Pendente = não aceito, não
+ * revogado e não vencido. Convidar de novo o mesmo e-mail revoga o anterior.
+ */
+export const convites = pgTable(
+  "convites",
+  {
+    ...colunaId(),
+    tipo: text("tipo", { enum: TIPOS_CONVITE }).notNull().default("empresa"),
+    /** Nulo só no convite de admin da plataforma. */
+    empresaId: uuid("empresa_id"),
+    /** Minúsculo e sem espaços nas pontas. */
+    email: text("email").notNull(),
+    /** Nulo só no convite de admin da plataforma. */
+    perfil: text("perfil", { enum: PERFIS }),
+    /** SHA-256 do token, em hexadecimal. O token nunca é gravado. */
+    tokenHash: text("token_hash").notNull(),
+    /** Nulo = sistema (script). */
+    criadoPor: uuid("criado_por"),
+    expiraEm: timestamptz("expira_em")
+      .notNull()
+      .default(sql`now() + interval '7 days'`),
+    aceitoEm: timestamptz("aceito_em"),
+    aceitoPor: uuid("aceito_por"),
+    revogadoEm: timestamptz("revogado_em"),
+    ...colunasTempo(),
+  },
+  (t): Restricoes => [
+    fk("convites", [t.empresaId], [empresas.id]),
+    fk("convites", [t.criadoPor], [usuarios.id]),
+    fk("convites", [t.aceitoPor], [usuarios.id]),
+    chaveEmpresaId("convites", t),
+    unique("convites_token_hash_key").on(t.tokenHash),
+    // um convite pendente por (empresa, e-mail); o vencido-e-não-revogado também conta
+    // (a criação revoga os anteriores antes de inserir)
+    uniqueIndex("convites_empresa_id_email_pendente_key")
+      .on(t.empresaId, t.email)
+      .where(sql`${t.aceitoEm} is null and ${t.revogadoEm} is null`),
+    uniqueIndex("convites_email_admin_pendente_key")
+      .on(t.email)
+      .where(sql`${t.tipo} = 'admin_plataforma' and ${t.aceitoEm} is null and ${t.revogadoEm} is null`),
+    index("convites_email_idx").on(t.email),
+    checkIn("convites", t.tipo, TIPOS_CONVITE),
+    checkIn("convites", t.perfil, PERFIS),
+    checkRegex("convites", t.tokenHash, "^[0-9a-f]{64}$"),
+    checkColuna("convites", t.email, sql`${t.email} = lower(btrim(${t.email})) and ${t.email} <> ''`),
+    check(
+      "convites_alvo_check",
+      sql`(${t.tipo} = 'empresa' and ${t.empresaId} is not null and ${t.perfil} is not null)
+        or (${t.tipo} = 'admin_plataforma' and ${t.empresaId} is null and ${t.perfil} is null)`,
+    ),
+    check(
+      "convites_situacao_check",
+      sql`not (${t.aceitoEm} is not null and ${t.revogadoEm} is not null)
+        and (${t.aceitoPor} is null or ${t.aceitoEm} is not null)`,
+    ),
   ],
 );

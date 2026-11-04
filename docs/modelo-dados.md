@@ -330,7 +330,7 @@ Usuários nunca são apagados: a função de exclusão de conta do Better Auth f
 
 Índice: `index (identifier)`.
 
-O convite do primeiro dono não usa tabela própria: o admin cria o usuário e o membro, e o sistema manda o link de definição de senha do Better Auth (fluxo de redefinição), que usa esta tabela.
+O convite do dono (e o de admin da plataforma) usa a tabela própria `convites` (2.9, D033), não esta. Esta tabela fica para o fluxo de redefinição de senha do Better Auth, quando houver envio de e-mail.
 
 ### 2.8 `membros` [N]
 
@@ -344,6 +344,44 @@ O convite do primeiro dono não usa tabela própria: o admin cria o usuário e o
 | ativo | boolean | não | `true` | | |
 
 Índices e unicidade: `unique (empresa_id, usuario_id)`, que também é alvo das FKs de `sessoes` e `mecanicos`; `index (usuario_id)`, para listar as empresas do usuário.
+
+### 2.9 `convites` [ADIÇÃO, D033]
+
+Convite por link de uso único: substitui a senha provisória do convite do dono (fatia 0.10). O token (256 bits, base64url) só aparece uma vez, no link `/convite/<token>`; a tabela guarda o SHA-256 dele. A auditoria nunca recebe o token nem o hash.
+
+| coluna | tipo | nulo | padrão | FK/CHECK | observação |
+|---|---|---|---|---|---|
+| tipo | text | não | `'empresa'` | CHECK `in ('empresa','admin_plataforma')` | `admin_plataforma`: conta de admin criada pelo `scripts/criar-tenant.ts --admin-plataforma`. |
+| empresa_id | uuid | sim | — | → empresas | Nulo só no tipo `admin_plataforma`. |
+| email | text | não | — | CHECK `email = lower(btrim(email)) and email <> ''` | Normalizado. |
+| perfil | text | sim | — | CHECK `in ('dono','balcao','estoque','mecanico')` | Nulo só no tipo `admin_plataforma`. |
+| token_hash | text | não | — | UNIQUE; CHECK `~ '^[0-9a-f]{64}$'` | SHA-256 do token, em hexadecimal. |
+| criado_por | uuid | sim | — | → usuarios | Nulo = sistema (script). |
+| expira_em | timestamptz | não | `now() + interval '7 days'` | | |
+| aceito_em | timestamptz | sim | — | | |
+| aceito_por | uuid | sim | — | → usuarios | |
+| revogado_em | timestamptz | sim | — | | |
+
+CHECKs de tabela:
+
+- `convites_alvo_check`: `(tipo = 'empresa' and empresa_id is not null and perfil is not null) or (tipo = 'admin_plataforma' and empresa_id is null and perfil is null)`;
+- `convites_situacao_check`: não pode estar aceito e revogado ao mesmo tempo; `aceito_por` só com `aceito_em`.
+
+Índices e unicidade:
+
+- `unique (token_hash)`;
+- `unique (empresa_id, email) where aceito_em is null and revogado_em is null`: um convite pendente por empresa e e-mail (convidar de novo revoga o anterior antes de inserir);
+- `unique (email) where tipo = 'admin_plataforma' and aceito_em is null and revogado_em is null`;
+- `unique (empresa_id, id)` (convenção 1.1);
+- `index (email)`.
+
+Regras (aplicação, `server/servicos/convites.ts`):
+
+- **Pendente** = não aceito, não revogado e `expira_em > now()`.
+- **Aceite atômico:** `UPDATE ... SET aceito_em = now() WHERE token_hash = $1 AND aceito_em IS NULL AND revogado_em IS NULL AND expira_em > now() RETURNING`. Dois cliques não criam dois membros.
+- Criar o convite não consulta `usuarios`: a resposta é a mesma para e-mail novo e existente.
+- O admin da plataforma só convida o primeiro dono: recusa se a empresa já tem dono ativo ou um convite de dono pendente para outro e-mail.
+- Gatilho `set_updated_at`.
 
 ---
 
@@ -1718,6 +1756,8 @@ erDiagram
   usuarios ||--o{ sessoes : abre
   usuarios ||--o{ contas_acesso : autentica
   membros |o--o{ sessoes : empresa_ativa
+  empresas |o--o{ convites : convida
+  usuarios |o--o{ convites : "cria / aceita"
   tenants {
     uuid id PK
     text nome
@@ -1778,6 +1818,19 @@ erDiagram
     text perfil
     text pin_hash
     bool ativo
+  }
+  convites {
+    uuid id PK
+    text tipo
+    uuid empresa_id FK
+    text email
+    text perfil
+    text token_hash UK
+    uuid criado_por FK
+    timestamptz expira_em
+    timestamptz aceito_em
+    uuid aceito_por FK
+    timestamptz revogado_em
   }
 ```
 
@@ -2608,6 +2661,8 @@ Cada passo é um par: a migração gerada pelo `drizzle-kit generate --name <slu
 | 8 | `0013_canais`, `0014_…_gatilhos` | `canais_venda`, `canal_anuncios`, `pedidos_canal`, `pedido_canal_itens`, `eventos_integracao`, `api_chaves`, `outbox`; FKs `vendas.pedido_canal_id`, `venda_itens.pedido_canal_item_id`, `estoque_reservas (empresa_id, pedido_canal_item_id, produto_id)` | `set_updated_at` |
 | 9 | `0015_fiscal`, `0016_…_gatilhos` | `documentos_fiscais`, `eventos_fiscais`, `notas_recebidas`; FKs `documento_fiscal_id` em `vendas`, `ordens_servico` e `devolucoes` | `set_updated_at` |
 | 10 | `0017_controle_busca`, `0018_…_gatilhos_indices` | `sequencias`, `auditoria` | append-only em `auditoria`; `set_updated_at` em `sequencias`; índices GIN `f_unaccent(lower(...)) gin_trgm_ops` em `produtos` (4 colunas), `clientes.nome` e `fornecedores.razao_social` |
+| 11 (aditiva, 0.6) | `0019_membros_pin_bloqueios` | coluna `membros.pin_bloqueios` (D029) | — |
+| 12 (aditiva, 0.10) | `0020_convites`, `0021_convites_gatilhos` | tabela `convites` (2.9, D033) | `set_updated_at` em `convites` |
 
 Observações:
 
